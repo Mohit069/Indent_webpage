@@ -1,0 +1,229 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * One light interface, deliberately. An ERP that half the office sees in a
+ * different colour scheme is an ERP where "the green one means approved"
+ * stops being a shared fact, and where a printed indent no longer matches the
+ * screen it was read from. `color-scheme: light` below is part of that: it
+ * keeps native date pickers, selects and scrollbars light even when the
+ * operating system is set to dark, which is otherwise the one place the old
+ * dark theme leaked back in.
+ *
+ * Colour is used to direct attention, not to decorate. Blue means "this is
+ * the action"; green, amber and red mean state. Nothing else is coloured.
+ */
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-ink: var(--primary-ink);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-soft: var(--danger-soft);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: light;
+
+  --canvas: #f8f9fb;
+  --surface: #ffffff;
+  --raised: #f3f4f6;
+  --sunken: #f9fafb;
+  --line: #e5e7eb;
+  --line-strong: #d1d5db;
+  --ink: #111827;
+  --muted: #6b7280;
+  --faint: #9ca3af;
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-soft: #eff6ff;
+  --primary-ink: #ffffff;
+
+  --success: #16a34a;
+  --success-soft: #f0fdf4;
+  --warning: #f59e0b;
+  --warning-soft: #fffbeb;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-soft: #fef2f2;
+
+  --focus: #3b82f6;
+
+  /* Barely-there elevation. Depth comes from the border, not the shadow. */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-raised: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-overlay: 0 16px 40px -8px rgba(16, 24, 40, 0.22);
+}
+
+* {
+  border-color: var(--line);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numbers that sit in columns must line up — quantities, indent numbers, dates. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Uppercase micro-labels need air to stay legible. */
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/*
+ * One focus ring for the whole app.
+ *
+ * :focus-visible rather than :focus, so it appears for keyboard users without
+ * putting a ring around every button a mouse touches.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Native selects keep the OS arrow; ours is drawn so it matches every other
+   control. Padding for it is applied per-component. */
+.select-reset {
+  appearance: none;
+  background-image: none;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 140ms ease-out;
+}
+
+.animate-rise-in {
+  animation: rise-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-sheet-up {
+  animation: sheet-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #eef0f3 25%, #f6f7f9 37%, #eef0f3 63%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .skeleton {
+    animation: none;
+  }
+}
+
+/*
+ * The printed indent.
+ *
+ * Format parity with the carbon-copy book is not nostalgia — it is what makes
+ * the first months survivable for the shop floor and for vendors who have been
+ * reading that layout for years. The screen redesign stops at this boundary.
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-sheet {
+    box-shadow: none !important;
+    border: 1px solid #000 !important;
+  }
+
+  .print-sheet table,
+  .print-sheet th,
+  .print-sheet td {
+    border-color: #000 !important;
+  }
+}

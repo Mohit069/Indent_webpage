@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+build/
+.vercel/
+
+# The local PGlite database directory — real data, not source.
+.pglite/
+.env
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+npm-debug.log*

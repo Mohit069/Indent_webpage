@@ -1,0 +1,1386 @@
+<title>Purchase Indent · Marudhar Quartz</title>
+
+<style>
+/* ==========================================================================
+   Purchase Indent System — working prototype
+
+   Self-contained: no server, no database, no build step. State lives in
+   localStorage, so indents you raise here persist and feed the dashboard.
+
+   Palette: warm mineral neutrals and a brass accent, taken from what this
+   company actually makes — engineered quartz in Icon Gold, Majestic Brown,
+   Royal Grigio. Chart colours were validated for colour-vision deficiency in
+   both themes rather than chosen by eye.
+   ========================================================================== */
+
+:root {
+  --canvas:#f4f2ef; --surface:#fff; --raised:#faf9f7; --sunk:#efece7;
+  --line:#e4e0d9; --line-strong:#cfc9bf;
+  --ink:#1c1a17; --muted:#6b665e; --faint:#979187;
+  --brass:#8a6516; --brass-soft:#f5edda; --brass-ink:#fff;
+
+  /* Status hues — validated: all 6 checks pass on this surface */
+  --st-draft:#7c3aed; --st-purchase:#b45309; --st-approval:#0369a1; --st-returned:#be123c;
+  --st-approved:#047857; --st-rejected:#9f1239; --st-closed:#3f6212; --st-cancelled:#78716c;
+
+  /* Sequential ramp for aging — one hue, light to dark as it gets worse */
+  --age-1:#ddc79a; --age-2:#c2a154; --age-3:#96731f; --age-4:#674d10;
+
+  --shadow:0 1px 2px rgba(28,26,23,.06), 0 4px 12px rgba(28,26,23,.04);
+  --radius:10px;
+}
+
+@media (prefers-color-scheme:dark){
+  :root{
+    --canvas:#141312; --surface:#1c1b19; --raised:#232120; --sunk:#100f0e;
+    --line:#332f2c; --line-strong:#454039;
+    --ink:#f0ece5; --muted:#a49d93; --faint:#7c756c;
+    --brass:#d9b05c; --brass-soft:#2a2317; --brass-ink:#1c1b19;
+
+    --st-draft:#7c3aed; --st-purchase:#c2740a; --st-approval:#0284c7; --st-returned:#e11d48;
+    --st-approved:#059669; --st-rejected:#be123c; --st-closed:#4d7c0f; --st-cancelled:#a8a29e;
+
+    --age-1:#6b5220; --age-2:#92702c; --age-3:#b8923c; --age-4:#ddb75f;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 12px rgba(0,0,0,.25);
+  }
+}
+:root[data-theme=light]{
+  --canvas:#f4f2ef; --surface:#fff; --raised:#faf9f7; --sunk:#efece7;
+  --line:#e4e0d9; --line-strong:#cfc9bf;
+  --ink:#1c1a17; --muted:#6b665e; --faint:#979187;
+  --brass:#8a6516; --brass-soft:#f5edda; --brass-ink:#fff;
+  --st-draft:#7c3aed; --st-purchase:#b45309; --st-approval:#0369a1; --st-returned:#be123c;
+  --st-approved:#047857; --st-rejected:#9f1239; --st-closed:#3f6212; --st-cancelled:#78716c;
+  --age-1:#ddc79a; --age-2:#c2a154; --age-3:#96731f; --age-4:#674d10;
+}
+:root[data-theme=dark]{
+  --canvas:#141312; --surface:#1c1b19; --raised:#232120; --sunk:#100f0e;
+  --line:#332f2c; --line-strong:#454039;
+  --ink:#f0ece5; --muted:#a49d93; --faint:#7c756c;
+  --brass:#d9b05c; --brass-soft:#2a2317; --brass-ink:#1c1b19;
+  --st-draft:#7c3aed; --st-purchase:#c2740a; --st-approval:#0284c7; --st-returned:#e11d48;
+  --st-approved:#059669; --st-rejected:#be123c; --st-closed:#4d7c0f; --st-cancelled:#a8a29e;
+  --age-1:#6b5220; --age-2:#92702c; --age-3:#b8923c; --age-4:#ddb75f;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0; background:var(--canvas); color:var(--ink);
+  font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;
+  font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace}
+.tab-num{font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0; text-wrap:balance; line-height:1.25}
+button{font:inherit; cursor:pointer}
+:focus-visible{outline:2px solid var(--brass); outline-offset:2px; border-radius:3px}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+.eyebrow{
+  font-size:11px; font-weight:700; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--faint);
+}
+
+/* ---------- shell ---------- */
+.topbar{
+  position:sticky; top:0; z-index:40; background:var(--surface);
+  border-bottom:1px solid var(--line);
+}
+.topbar-in{
+  max-width:1180px; margin:0 auto; padding:12px 20px;
+  display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+}
+.brand{margin-right:auto}
+.brand h1{font-size:15px; font-weight:700; letter-spacing:-.01em}
+.brand p{margin:1px 0 0; font-size:12px; color:var(--faint)}
+
+.tabs{display:flex; gap:2px; background:var(--sunk); padding:3px; border-radius:8px}
+.tab{
+  border:0; background:none; color:var(--muted); padding:6px 13px;
+  border-radius:6px; font-size:13px; font-weight:600; transition:.15s;
+}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected=true]{background:var(--surface); color:var(--ink); box-shadow:var(--shadow)}
+
+.who{display:flex; align-items:center; gap:8px}
+.who select{
+  border:1px solid var(--line-strong); background:var(--surface); color:var(--ink);
+  border-radius:7px; padding:6px 9px; font-size:12.5px; font-weight:600;
+}
+.icon-btn{
+  border:1px solid var(--line-strong); background:var(--surface); color:var(--muted);
+  border-radius:7px; width:32px; height:32px; display:grid; place-items:center; font-size:14px;
+}
+.icon-btn:hover{color:var(--ink)}
+
+main{max-width:1180px; margin:0 auto; padding:24px 20px 72px}
+.view{display:none}
+.view.on{display:block}
+
+.page-head{margin-bottom:20px}
+.page-head h2{font-size:20px; letter-spacing:-.02em}
+.page-head p{margin:4px 0 0; font-size:13.5px; color:var(--muted); max-width:62ch}
+
+/* ---------- cards ---------- */
+.card{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden;
+}
+.card-head{
+  padding:13px 16px; border-bottom:1px solid var(--line);
+  display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+}
+.card-head h3{font-size:13.5px; font-weight:700}
+.card-head .sub{font-size:12px; color:var(--faint)}
+.card-body{padding:16px}
+
+/* ---------- stat tiles ---------- */
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:12px; margin-bottom:20px}
+.tile{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+  padding:14px 15px; box-shadow:var(--shadow); position:relative; overflow:hidden;
+}
+.tile .v{font-size:27px; font-weight:700; letter-spacing:-.03em; line-height:1; display:block}
+.tile .l{margin-top:7px; display:block}
+.tile .sub{margin-top:5px; font-size:11.5px; color:var(--faint); display:block}
+.tile.alert .v{color:var(--brass)}
+.tile.alert::before{content:""; position:absolute; inset:0 auto 0 0; width:3px; background:var(--brass)}
+
+/* ---------- charts ---------- */
+.charts{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px}
+@media (max-width:860px){.charts{grid-template-columns:1fr}}
+
+.bars{display:flex; flex-direction:column; gap:11px}
+.bar-row{display:grid; grid-template-columns:132px 1fr 42px; align-items:center; gap:11px}
+.bar-row .name{font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:7px; min-width:0}
+.bar-row .name span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.swatch{width:9px; height:9px; border-radius:2px; flex:none}
+.track{background:var(--sunk); border-radius:4px; height:19px; position:relative; overflow:hidden}
+.fill{
+  height:100%; border-radius:0 4px 4px 0; min-width:3px;
+  transition:width .5s cubic-bezier(.4,0,.2,1);
+}
+.bar-row .val{font-size:13px; font-weight:700; text-align:right}
+
+.legend{display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; padding-top:12px; border-top:1px solid var(--line)}
+.legend div{display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted)}
+
+.empty-chart{padding:26px 0; text-align:center; font-size:13px; color:var(--faint)}
+
+/* ---------- tables ---------- */
+.scroll{overflow-x:auto}
+table{width:100%; border-collapse:collapse; font-size:13.5px}
+thead th{
+  text-align:left; font-size:11px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--faint);
+  padding:9px 14px; border-bottom:1px solid var(--line); white-space:nowrap;
+}
+tbody td{padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover{background:var(--raised)}
+
+.chip{
+  display:inline-flex; align-items:center; gap:5px; white-space:nowrap;
+  padding:3px 9px; border-radius:999px; font-size:11.5px; font-weight:700;
+  border:1px solid; background:var(--surface);
+}
+.chip .dot{width:6px; height:6px; border-radius:50%; background:currentColor; flex:none}
+.pri{font-size:10.5px; font-weight:800; letter-spacing:.05em; text-transform:uppercase}
+.pri.URGENT{color:var(--st-purchase)}
+.pri.CRITICAL{color:var(--st-returned)}
+.stale{color:var(--st-purchase); font-weight:700}
+
+/* ---------- forms ---------- */
+.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px}
+.field{display:flex; flex-direction:column; gap:5px; min-width:0}
+.field > label{font-size:11.5px; font-weight:700; color:var(--muted)}
+.req{color:var(--brass)}
+.hint{font-size:11.5px; color:var(--faint)}
+.err{font-size:11.5px; font-weight:600; color:var(--st-returned)}
+input,select,textarea{
+  width:100%; border:1px solid var(--line-strong); background:var(--surface); color:var(--ink);
+  border-radius:7px; padding:8px 10px; font:inherit; font-size:13.5px;
+}
+input:focus,select:focus,textarea:focus{outline:none; border-color:var(--brass); box-shadow:0 0 0 3px var(--brass-soft)}
+input[readonly]{background:var(--raised); color:var(--muted); cursor:not-allowed}
+textarea{resize:vertical; min-height:66px}
+.full{grid-column:1/-1}
+
+.btn{
+  border:1px solid transparent; border-radius:8px; padding:9px 17px;
+  font-size:13.5px; font-weight:700; transition:.15s; white-space:nowrap;
+}
+.btn-primary{background:var(--brass); color:var(--brass-ink)}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn-ghost{background:var(--surface); border-color:var(--line-strong); color:var(--ink)}
+.btn-ghost:hover{background:var(--raised)}
+.btn-danger{background:var(--surface); border-color:var(--st-returned); color:var(--st-returned)}
+.btn-danger:hover{background:var(--brass-soft)}
+.btn-sm{padding:6px 12px; font-size:12.5px}
+.btn:disabled{opacity:.5; cursor:not-allowed}
+.actions{display:flex; gap:9px; flex-wrap:wrap; align-items:center}
+
+/* ---------- line editor ---------- */
+.lines-tbl{border:1px solid var(--line); border-radius:8px; overflow:hidden}
+.lines-tbl table{font-size:13px}
+.lines-tbl thead th{background:var(--raised)}
+.lines-tbl td{padding:8px}
+.lines-tbl input,.lines-tbl select{padding:6px 8px; font-size:13px}
+.rownum{color:var(--faint); font-size:12px; text-align:center; padding-top:14px!important}
+.del{
+  border:0; background:none; color:var(--faint); font-size:15px;
+  padding:6px; border-radius:6px; line-height:1;
+}
+.del:hover{color:var(--st-returned); background:var(--raised)}
+
+.line-card{border:1px solid var(--line); border-radius:9px; padding:12px; background:var(--raised); margin-bottom:11px}
+.line-card-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:9px}
+.trio{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+.desktop-lines{display:block}
+.mobile-lines{display:none}
+@media (max-width:800px){.desktop-lines{display:none} .mobile-lines{display:block}}
+
+/* ---------- banners ---------- */
+.banner{border:1px solid; border-radius:9px; padding:12px 14px; font-size:13.5px; margin-bottom:16px}
+.banner strong{font-weight:700}
+.banner-sign{border-color:var(--brass); background:var(--brass-soft)}
+.banner-warn{border-color:var(--st-purchase); background:var(--brass-soft)}
+.banner-info{border-color:var(--line-strong); background:var(--raised)}
+
+/* ---------- timeline ---------- */
+.timeline{list-style:none; margin:0; padding:0}
+.timeline li{display:flex; gap:12px}
+.tl-rail{display:flex; flex-direction:column; align-items:center; flex:none}
+.tl-dot{width:9px; height:9px; border-radius:50%; background:var(--brass); margin-top:5px}
+.tl-line{width:2px; flex:1; background:var(--line); min-height:16px}
+.tl-body{padding-bottom:18px; min-width:0}
+.tl-body .t{font-size:13.5px; font-weight:600}
+.tl-body .m{font-size:12px; color:var(--muted); margin-top:2px}
+.tl-note{
+  margin-top:7px; font-size:12.5px; background:var(--raised);
+  border:1px solid var(--line); border-radius:6px; padding:7px 10px;
+}
+
+/* ---------- detail ---------- */
+.dl{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px}
+.dl .k{font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--faint)}
+.dl .v{margin-top:3px; font-size:13.5px}
+.stack{display:flex; flex-direction:column; gap:16px}
+
+.toolbar{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:16px}
+.toolbar .field{flex:1; min-width:170px}
+
+.empty{padding:44px 20px; text-align:center}
+.empty h4{margin:0 0 5px; font-size:14px}
+.empty p{margin:0; font-size:13px; color:var(--muted)}
+
+.tip{
+  position:fixed; z-index:80; pointer-events:none; opacity:0; transition:opacity .12s;
+  background:var(--ink); color:var(--canvas); font-size:12px; font-weight:600;
+  padding:5px 9px; border-radius:6px; white-space:nowrap;
+}
+.tip.on{opacity:1}
+
+.note-bar{
+  font-size:12px; color:var(--faint); background:var(--raised);
+  border-top:1px solid var(--line); padding:9px 16px;
+}
+
+/* ---------- print ---------- */
+.sheet{background:#fff; color:#000; padding:22px; border:1px solid #000}
+.sheet *{border-color:#000!important}
+.sheet h4{text-align:center; font-size:15px; margin:0; text-transform:uppercase; letter-spacing:.02em}
+.sheet .addr{text-align:center; font-size:9px; margin:5px auto 0; max-width:460px; line-height:1.45}
+.sheet .ttl{text-align:center; font-size:12.5px; font-weight:700; text-transform:uppercase; letter-spacing:.16em; margin:8px 0 0}
+.sheet table{font-size:10px}
+.sheet th,.sheet td{border:1px solid #000; padding:3px 5px}
+.sheet th{font-weight:700; background:#fff}
+.sig-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:14px}
+.sig{border:1px solid #000; padding:7px; font-size:9.5px; min-height:74px}
+.sig .st{font-weight:700; margin-bottom:5px}
+.dotline{border-bottom:1px dotted #000; flex:1}
+.idrow{display:flex; gap:6px; font-size:10px; margin-bottom:5px}
+
+@media print{
+  .no-print{display:none!important}
+  body{background:#fff}
+  main{padding:0; max-width:none}
+  .sheet{border:none; padding:0}
+  @page{size:A4; margin:12mm}
+}
+</style>
+
+<div class="topbar no-print">
+  <div class="topbar-in">
+    <div class="brand">
+      <h1>Purchase Indent</h1>
+      <p>Marudhar Quartz Surfaces Pvt. Ltd.</p>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-view="dash">Dashboard</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="new">New Indent</button>
+      <button class="tab" role="tab" aria-selected="false" data-view="list">All Indents</button>
+    </div>
+
+    <div class="who">
+      <label for="role" class="eyebrow" style="margin:0">Signed in as</label>
+      <select id="role" aria-label="Switch role"></select>
+      <button class="icon-btn" id="theme" aria-label="Switch light or dark theme">◐</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <!-- ================= DASHBOARD ================= -->
+  <section class="view on" id="v-dash">
+    <div class="page-head">
+      <h2>Dashboard</h2>
+      <p id="dash-sub"></p>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="charts">
+      <div class="card">
+        <div class="card-head">
+          <h3>Where work is sitting</h3>
+          <span class="sub">open indents only</span>
+        </div>
+        <div class="card-body"><div id="c-status"></div></div>
+        <p class="note-bar">Approved, procured and rejected indents are finished, so they are counted in the tiles above rather than shown here.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>How long they have been waiting</h3>
+          <span class="sub">since submission</span>
+        </div>
+        <div class="card-body"><div id="c-age"></div></div>
+        <p class="note-bar">The thing paper hides best: a form parked on a desk for six days looks identical to one signed this morning.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-head">
+        <h3>Indents raised by department</h3>
+        <span class="sub">all time</span>
+      </div>
+      <div class="card-body"><div id="c-dept"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Needs attention first</h3>
+        <span class="sub">most urgent, longest waiting</span>
+      </div>
+      <div class="scroll"><table id="t-attention"></table></div>
+    </div>
+  </section>
+
+  <!-- ================= NEW INDENT ================= -->
+  <section class="view" id="v-new">
+    <div class="page-head">
+      <h2 id="form-title">New Purchase Indent</h2>
+      <p>The indent number is issued when you sign and submit — not now. Abandoned drafts never burn a number.</p>
+    </div>
+    <div id="form-guard"></div>
+    <form id="form" novalidate>
+      <div class="stack">
+        <div class="card">
+          <div class="card-head"><h3>Indent details</h3></div>
+          <div class="card-body">
+            <div class="grid" id="form-head"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Items</h3>
+            <button type="button" class="btn btn-ghost btn-sm" id="add-line">+ Add item</button>
+          </div>
+          <div class="card-body">
+            <div class="desktop-lines"><div class="lines-tbl"><table id="lines-tbl"></table></div></div>
+            <div class="mobile-lines" id="lines-cards"></div>
+            <p class="hint" style="margin:11px 0 0">
+              Balance quantity is what your department believes is in stores. It is recorded as your
+              figure, not a stock-system reading.
+            </p>
+            <p class="err" id="lines-err" style="margin:9px 0 0"></p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Save draft</button>
+          <button type="button" class="btn btn-ghost" id="form-cancel">Cancel</button>
+          <span class="hint">Saving keeps this private to your department. You sign it from the next screen.</span>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <!-- ================= LIST ================= -->
+  <section class="view" id="v-list">
+    <div class="page-head">
+      <h2 id="list-title">All Indents</h2>
+      <p id="list-sub"></p>
+    </div>
+    <div class="toolbar">
+      <div class="field">
+        <label for="q">Search</label>
+        <input id="q" placeholder="Indent number, requester, item, purpose">
+      </div>
+      <div class="field" style="flex:0 0 190px">
+        <label for="fstatus">Status</label>
+        <select id="fstatus"></select>
+      </div>
+      <div class="field" style="flex:0 0 190px">
+        <label for="fdept">Department</label>
+        <select id="fdept"></select>
+      </div>
+    </div>
+    <div class="card"><div class="scroll"><table id="t-list"></table></div></div>
+  </section>
+
+  <!-- ================= DETAIL ================= -->
+  <section class="view" id="v-detail"></section>
+
+  <!-- ================= PRINT ================= -->
+  <section class="view" id="v-print"></section>
+</main>
+
+<div class="tip" id="tip"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ==========================================================================
+   Data
+   ========================================================================== */
+
+const KEY = 'mq-indent-prototype-v1';
+const TODAY = new Date('2026-07-29T10:00:00');
+
+const DEPTS = ['Production','Maintenance','Quality Control','Stores','Dispatch & Logistics','Safety'];
+const UOMS  = ['NOS','KG','LTR','MTR','SET','BOX','ROLL','PKT'];
+
+const ITEMS = [
+  {n:'Deep groove ball bearing', s:'6205 2RS · 25×52×15 mm', u:'NOS'},
+  {n:'V-belt',                   s:'B-52 wrapped',            u:'NOS'},
+  {n:'Cut-resistant gloves',     s:'Level 5 · size L',        u:'NOS'},
+  {n:'Polyester resin',          s:'Unsaturated, GP grade',   u:'LTR'},
+  {n:'Diamond polishing pad',    s:'400 grit · 100 mm',       u:'NOS'},
+  {n:'Hydraulic oil',            s:'ISO VG 46',               u:'LTR'},
+  {n:'Safety goggles',           s:'Polycarbonate, anti-fog', u:'NOS'},
+  {n:'Power contactor',          s:'40 A · 3 pole · 240 V',   u:'NOS'},
+  {n:'Air filter element',       s:'Compressor, 10 micron',   u:'NOS'},
+  {n:'Packing strap',            s:'12 mm PP roll',           u:'ROLL'},
+  {n:'Cotton waste cloth',       s:'Mixed, bleached',         u:'KG'},
+  {n:'Welding electrode',        s:'E6013 · 3.15 mm',         u:'PKT'}
+];
+
+const USERS = [
+  {id:'u1', name:'Suresh Sharma', desig:'Head — Maintenance',      role:'HOD',      dept:'Maintenance'},
+  {id:'u2', name:'Vikram Singh',  desig:'Head — Production',        role:'HOD',      dept:'Production'},
+  {id:'u3', name:'Anita Verma',   desig:'Purchase Officer',         role:'PURCHASE', dept:null},
+  {id:'u4', name:'R. Mehta',      desig:'Director',                 role:'APPROVER', dept:null}
+];
+
+const STATUS = {
+  DRAFT:            {label:'Draft',             color:'--st-draft',     open:true},
+  PENDING_PURCHASE: {label:'With Purchase',     color:'--st-purchase',  open:true},
+  PENDING_APPROVAL: {label:'Awaiting Approval', color:'--st-approval',  open:true},
+  RETURNED:         {label:'Returned',          color:'--st-returned',  open:true},
+  APPROVED:         {label:'Approved',          color:'--st-approved',  open:false},
+  CLOSED:           {label:'Procured',          color:'--st-closed',    open:false},
+  REJECTED:         {label:'Rejected',          color:'--st-rejected',  open:false},
+  CANCELLED:        {label:'Withdrawn',         color:'--st-cancelled', open:false}
+};
+const OPEN_ORDER = ['DRAFT','PENDING_PURCHASE','PENDING_APPROVAL','RETURNED'];
+
+const STAGE_LABEL = {
+  CREATE:'Created', SUBMIT:'Signed & submitted by HOD',
+  PURCHASE_RECEIPT:'Received by Purchase Dept.', FINAL_APPROVAL:'Approved by approving authority',
+  RETURN:'Returned for changes', REJECT:'Rejected', CANCEL:'Withdrawn', CLOSE:'Marked procured'
+};
+
+/* The workflow. Three stages, not the paper form's four — the HOD is the only
+   person who signs in at the department end, so their submit IS the HOD
+   signature rather than a separate approval afterwards. */
+const TRANSITIONS = [
+  {a:'submit',      from:['DRAFT','RETURNED'],                  to:'PENDING_PURCHASE', roles:['HOD'],      stage:'SUBMIT',           label:'Sign & Submit',      note:false, tone:'primary'},
+  {a:'acknowledge', from:['PENDING_PURCHASE'],                  to:'PENDING_APPROVAL', roles:['PURCHASE'], stage:'PURCHASE_RECEIPT', label:'Acknowledge Receipt',note:false, tone:'primary'},
+  {a:'approve',     from:['PENDING_APPROVAL'],                  to:'APPROVED',         roles:['APPROVER'], stage:'FINAL_APPROVAL',   label:'Approve',            note:false, tone:'primary'},
+  {a:'return',      from:['PENDING_PURCHASE','PENDING_APPROVAL'],to:'RETURNED',        roles:['PURCHASE','APPROVER'], stage:'RETURN', label:'Return for Changes', note:true,  tone:'ghost'},
+  {a:'reject',      from:['PENDING_APPROVAL'],                  to:'REJECTED',         roles:['APPROVER'], stage:'REJECT',           label:'Reject',             note:true,  tone:'danger'},
+  {a:'cancel',      from:['DRAFT','RETURNED','PENDING_PURCHASE'],to:'CANCELLED',       roles:['HOD'],      stage:'CANCEL',           label:'Withdraw',           note:true,  tone:'danger'},
+  {a:'close',       from:['APPROVED'],                          to:'CLOSED',           roles:['PURCHASE'], stage:'CLOSE',            label:'Mark Procured',      note:false, tone:'primary'}
+];
+
+/* ==========================================================================
+   Helpers
+   ========================================================================== */
+
+const $  = (s,r=document) => r.querySelector(s);
+const $$ = (s,r=document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const daysAgo = n => new Date(TODAY.getTime() - n*864e5).toISOString();
+const fmtDate = iso => new Date(iso).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+const fmtDT   = iso => new Date(iso).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+const ymd     = d => new Date(d).toISOString().slice(0,10);
+
+function ageDays(ind){
+  const from = ind.submittedAt || ind.updatedAt;
+  return Math.max(0, Math.floor((TODAY - new Date(from)) / 864e5));
+}
+function chip(st){
+  const s = STATUS[st];
+  return `<span class="chip" style="color:var(${s.color});border-color:var(${s.color})">
+    <span class="dot"></span>${s.label}</span>`;
+}
+
+/* ==========================================================================
+   Seed
+   ========================================================================== */
+
+function line(i, bal, req, custom){
+  const it = ITEMS[i];
+  return {item: custom ? null : it.n, spec: custom ? null : it.s,
+          custom: custom || null, uom: custom ? 'NOS' : it.u,
+          balance: bal, required: req};
+}
+
+function seed(){
+  const mk = (o) => ({
+    id:'i'+Math.random().toString(36).slice(2,9),
+    deptRef:'', priority:'NORMAL', purpose:'', expected:null, ...o
+  });
+
+  const raw = [
+    mk({no:'MQ/IND/26-27/0061', dept:'Maintenance', by:'u1', req:'Ramesh Kumar', reqD:'Shift Technician',
+        status:'PENDING_PURCHASE', priority:'CRITICAL', sub:6, date:6,
+        purpose:'Line 2 polishing head is seizing. Bearing replacement needed before the night shift.',
+        lines:[line(0,2,6), line(1,0,4)]}),
+    mk({no:'MQ/IND/26-27/0062', dept:'Production', by:'u2', req:'Dinesh Yadav', reqD:'Line Supervisor',
+        status:'PENDING_APPROVAL', priority:'URGENT', sub:4, date:4,
+        purpose:'Resin stock will not cover the Arctic Ivory batch scheduled for Friday.',
+        lines:[line(3,180,600)]}),
+    mk({no:'MQ/IND/26-27/0063', dept:'Safety', by:'u1', req:'Priya Nair', reqD:'Safety Officer',
+        status:'PENDING_PURCHASE', sub:2, date:2,
+        purpose:'Quarterly PPE replenishment for the cutting section.',
+        lines:[line(2,14,60), line(6,8,40)]}),
+    mk({no:'MQ/IND/26-27/0064', dept:'Maintenance', by:'u1', req:'Ramesh Kumar', reqD:'Shift Technician',
+        status:'PENDING_APPROVAL', sub:9, date:9,
+        purpose:'Compressor service kit — due at 4000 running hours, now at 3870.',
+        lines:[line(8,1,4), line(5,20,120)]}),
+    mk({no:'MQ/IND/26-27/0065', dept:'Quality Control', by:'u2', req:'Sunil Bhargava', reqD:'QC Inspector',
+        status:'RETURNED', sub:3, date:3,
+        purpose:'Polishing pads for the finish-check bench.',
+        note:'Quantity looks high against last month. Please confirm with stores before we proceed.',
+        lines:[line(4,6,120)]}),
+    mk({no:'MQ/IND/26-27/0066', dept:'Dispatch & Logistics', by:'u2', req:'Anil Kapoor', reqD:'Dispatch Incharge',
+        status:'APPROVED', sub:12, date:12, purpose:'Packing consumables for the export consignment.',
+        lines:[line(9,4,40), line(10,12,50)]}),
+    mk({no:'MQ/IND/26-27/0067', dept:'Production', by:'u2', req:'Dinesh Yadav', reqD:'Line Supervisor',
+        status:'CLOSED', sub:24, date:25, purpose:'Routine monthly consumables.',
+        lines:[line(11,3,25)]}),
+    mk({no:'MQ/IND/26-27/0068', dept:'Maintenance', by:'u1', req:'Javed Ansari', reqD:'Electrician',
+        status:'CLOSED', sub:19, date:20, purpose:'Contactor failed on the feed conveyor panel.',
+        lines:[line(7,0,3)]}),
+    mk({no:'MQ/IND/26-27/0069', dept:'Stores', by:'u2', req:'Mohan Lal', reqD:'Store Keeper',
+        status:'PENDING_PURCHASE', sub:1, date:1, purpose:'Reorder level breached on cleaning consumables.',
+        lines:[line(10,5,80)]}),
+    mk({no:'MQ/IND/26-27/0070', dept:'Production', by:'u2', req:'Kavita Rane', reqD:'Shift Engineer',
+        status:'REJECTED', sub:15, date:15, purpose:'Additional pads requested outside the plan.',
+        note:'Not budgeted this quarter. Raise again after the September review.',
+        lines:[line(4,30,90)]}),
+    mk({no:null, dept:'Maintenance', by:'u1', req:'Ramesh Kumar', reqD:'Shift Technician',
+        status:'DRAFT', sub:null, date:0, purpose:'Spare set to hold against the next breakdown.',
+        lines:[line(0,2,4)]}),
+    mk({no:'MQ/IND/26-27/0071', dept:'Quality Control', by:'u2', req:'Sunil Bhargava', reqD:'QC Inspector',
+        status:'APPROVED', sub:7, date:8, purpose:'Calibration consumables for the test lab.',
+        lines:[line(5,10,40)]}),
+    mk({no:'MQ/IND/26-27/0072', dept:'Safety', by:'u1', req:'Priya Nair', reqD:'Safety Officer',
+        status:'PENDING_APPROVAL', sub:11, date:11, priority:'URGENT',
+        purpose:'Goggles failed inspection — replacement is a compliance item.',
+        lines:[line(6,0,50)]}),
+    mk({no:'MQ/IND/26-27/0073', dept:'Production', by:'u2', req:'Dinesh Yadav', reqD:'Line Supervisor',
+        status:'PENDING_PURCHASE', sub:5, date:5,
+        purpose:'Belt drive on the calibrating line is slipping under load.',
+        lines:[line(1,1,6), line(0,2,2), line(-1,0,10,'Idler pulley, 80 mm, taper lock')].filter(Boolean)}),
+    mk({no:'MQ/IND/26-27/0074', dept:'Stores', by:'u2', req:'Mohan Lal', reqD:'Store Keeper',
+        status:'CLOSED', sub:30, date:31, purpose:'Monthly stationery and housekeeping.',
+        lines:[line(10,2,30)]})
+  ];
+
+  return raw.map(r => {
+    const created = daysAgo(r.date);
+    const events = [{stage:'CREATE', to:'DRAFT', at:created, who:USERS.find(u=>u.id===r.by)}];
+    const hod = USERS.find(u=>u.id===r.by);
+    const pur = USERS.find(u=>u.role==='PURCHASE');
+    const app = USERS.find(u=>u.role==='APPROVER');
+
+    if (r.sub != null) events.push({stage:'SUBMIT', to:'PENDING_PURCHASE', at:daysAgo(r.sub), who:hod});
+    if (['PENDING_APPROVAL','APPROVED','CLOSED','REJECTED'].includes(r.status))
+      events.push({stage:'PURCHASE_RECEIPT', to:'PENDING_APPROVAL', at:daysAgo(Math.max(0,r.sub-1)), who:pur});
+    if (['APPROVED','CLOSED'].includes(r.status))
+      events.push({stage:'FINAL_APPROVAL', to:'APPROVED', at:daysAgo(Math.max(0,r.sub-2)), who:app});
+    if (r.status==='CLOSED')
+      events.push({stage:'CLOSE', to:'CLOSED', at:daysAgo(Math.max(0,r.sub-4)), who:pur});
+    if (r.status==='RETURNED')
+      events.push({stage:'RETURN', to:'RETURNED', at:daysAgo(Math.max(0,r.sub-1)), who:pur, note:r.note});
+    if (r.status==='REJECTED')
+      events.push({stage:'REJECT', to:'REJECTED', at:daysAgo(Math.max(0,r.sub-3)), who:app, note:r.note});
+
+    return {
+      id:r.id, no:r.no, date:ymd(daysAgo(r.date)), dept:r.dept, raisedBy:r.by,
+      requester:r.req, requesterDesig:r.reqD, purpose:r.purpose, expected:r.expected,
+      deptRef:r.deptRef, priority:r.priority, status:r.status, lines:r.lines,
+      submittedAt: r.sub != null ? daysAgo(r.sub) : null,
+      updatedAt: events[events.length-1].at, createdAt:created, events
+    };
+  });
+}
+
+/* ==========================================================================
+   State
+   ========================================================================== */
+
+let state = load();
+let me = USERS[0];
+let editingId = null;
+let draftLines = [];
+let detailId = null;
+
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if (raw){
+      const p = JSON.parse(raw);
+      if (Array.isArray(p) && p.length) return p;
+    }
+  }catch(e){ /* corrupt or unavailable — fall through to a fresh seed */ }
+  const s = seed();
+  save(s);
+  return s;
+}
+function save(s){
+  try{ localStorage.setItem(KEY, JSON.stringify(s ?? state)); }
+  catch(e){ /* private mode: the prototype still works, it just will not persist */ }
+}
+
+/* Counter mirrors the real system: the number is issued on submit, never on
+   draft creation, so an abandoned draft cannot burn one. */
+function nextNo(){
+  const used = state.map(i => i.no).filter(Boolean)
+    .map(n => parseInt(n.split('/').pop(), 10)).filter(n => !isNaN(n));
+  const next = (used.length ? Math.max(...used) : 0) + 1;
+  return 'MQ/IND/26-27/' + String(next).padStart(4,'0');
+}
+
+function visible(){
+  return me.role === 'HOD'
+    ? state.filter(i => i.dept === me.dept)
+    : state.filter(i => i.status !== 'DRAFT');
+}
+
+function actionsFor(ind){
+  return TRANSITIONS.filter(t =>
+    t.from.includes(ind.status) &&
+    t.roles.includes(me.role) &&
+    !(me.role === 'HOD' && ind.dept !== me.dept));
+}
+
+function apply(ind, t, note){
+  const from = ind.status;
+  ind.status = t.to;
+  ind.updatedAt = new Date().toISOString();
+  if (t.a === 'submit' && !ind.no){
+    ind.no = nextNo();
+    ind.submittedAt = ind.updatedAt;
+  }
+  ind.events.push({stage:t.stage, from, to:t.to, at:ind.updatedAt, who:me, note:note || null});
+  save();
+}
+
+/* ==========================================================================
+   Charts — plain HTML bars. Every one is directly labelled, so identity is
+   never carried by colour alone.
+   ========================================================================== */
+
+const tip = $('#tip');
+function bindTip(el, text){
+  el.addEventListener('pointerenter', e => {
+    tip.textContent = text; tip.classList.add('on'); moveTip(e);
+  });
+  el.addEventListener('pointermove', moveTip);
+  el.addEventListener('pointerleave', () => tip.classList.remove('on'));
+}
+function moveTip(e){
+  const pad = 12;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+
+function barChart(host, rows, unit){
+  if (!rows.length || rows.every(r => !r.v)){
+    host.innerHTML = '<p class="empty-chart">Nothing to show yet.</p>';
+    return;
+  }
+  const max = Math.max(...rows.map(r => r.v));
+  host.innerHTML = `<div class="bars">${rows.map(r => `
+    <div class="bar-row">
+      <div class="name"><span class="swatch" style="background:${r.c}"></span><span>${esc(r.k)}</span></div>
+      <div class="track"><div class="fill" style="width:${max ? (r.v/max*100) : 0}%;background:${r.c}"></div></div>
+      <div class="val tab-num">${r.v}</div>
+    </div>`).join('')}</div>`;
+
+  $$('.bar-row', host).forEach((el,i) => {
+    const r = rows[i];
+    bindTip(el, `${r.k} — ${r.v} ${r.v === 1 ? unit.replace(/s$/,'') : unit}`);
+  });
+}
+
+function cssVar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function renderCharts(){
+  const rows = visible();
+
+  // 1. Status of open work. Status hues, workflow order, direct labels.
+  barChart($('#c-status'),
+    OPEN_ORDER
+      .filter(s => me.role !== 'HOD' ? s !== 'DRAFT' : true)
+      .map(s => ({k:STATUS[s].label, v:rows.filter(i => i.status===s).length, c:cssVar(STATUS[s].color)})),
+    'indents');
+
+  // 2. Aging. Ordered bins, one hue light→dark, because older is worse.
+  const open = rows.filter(i => STATUS[i.status].open && i.submittedAt);
+  const bins = [
+    {k:'0–2 days',   t:d => d<=2,        c:cssVar('--age-1')},
+    {k:'3–5 days',   t:d => d>2 && d<=5, c:cssVar('--age-2')},
+    {k:'6–10 days',  t:d => d>5 && d<=10,c:cssVar('--age-3')},
+    {k:'Over 10 days',t:d => d>10,       c:cssVar('--age-4')}
+  ];
+  barChart($('#c-age'),
+    bins.map(b => ({k:b.k, v:open.filter(i => b.t(ageDays(i))).length, c:b.c})),
+    'indents');
+
+  // 3. Department volume. One series, one hue — the title names it, so no legend.
+  const brass = cssVar('--brass');
+  barChart($('#c-dept'),
+    DEPTS.map(d => ({k:d, v:rows.filter(i => i.dept===d).length, c:brass}))
+         .sort((a,b) => b.v - a.v),
+    'indents');
+}
+
+/* ==========================================================================
+   Dashboard
+   ========================================================================== */
+
+function renderDash(){
+  const rows = visible();
+  const open = rows.filter(i => STATUS[i.status].open);
+  const overdue = open.filter(i => i.submittedAt && ageDays(i) > 5);
+
+  const approvedDays = rows
+    .filter(i => ['APPROVED','CLOSED'].includes(i.status))
+    .map(i => {
+      const s = i.events.find(e => e.stage === 'SUBMIT');
+      const a = i.events.find(e => e.stage === 'FINAL_APPROVAL');
+      return s && a ? (new Date(a.at) - new Date(s.at)) / 864e5 : null;
+    }).filter(v => v != null && v >= 0);
+  const avg = approvedDays.length
+    ? (approvedDays.reduce((x,y) => x+y, 0) / approvedDays.length).toFixed(1) : '—';
+
+  $('#dash-sub').textContent = me.role === 'HOD'
+    ? `Everything ${me.dept} has raised, and exactly where each one is sitting.`
+    : 'Every indent across the plant, and where the queue is stuck.';
+
+  const tiles = [
+    {v:open.length,     l:'Open now',      s:'still moving',            alert:open.length > 0},
+    {v:overdue.length,  l:'Waiting 5+ days',s:'needs chasing',          alert:overdue.length > 0},
+    {v:rows.filter(i => i.status==='APPROVED').length, l:'Approved', s:'ready to procure'},
+    {v:rows.filter(i => i.status==='CLOSED').length,   l:'Procured', s:'closed out'},
+    {v:avg,             l:'Avg days to approve', s:'submit → approved'}
+  ];
+
+  $('#tiles').innerHTML = tiles.map(t => `
+    <div class="tile${t.alert ? ' alert' : ''}">
+      <span class="v tab-num">${t.v}</span>
+      <span class="l eyebrow">${t.l}</span>
+      <span class="sub">${t.s}</span>
+    </div>`).join('');
+
+  renderCharts();
+
+  // Sorted the way an approver actually works: most urgent, longest waiting.
+  const rank = {CRITICAL:0, URGENT:1, NORMAL:2};
+  const attention = open.slice().sort((a,b) =>
+    (rank[a.priority] - rank[b.priority]) || (ageDays(b) - ageDays(a))).slice(0,7);
+
+  $('#t-attention').innerHTML = attention.length ? `
+    <thead><tr>
+      <th>Indent No.</th><th>Department</th><th>Requester</th>
+      <th>Items</th><th>Status</th><th>Waiting</th>
+    </tr></thead>
+    <tbody>${attention.map(i => `
+      <tr class="click" data-id="${i.id}">
+        <td><span class="mono" style="color:var(--brass);font-weight:700;font-size:12.5px">${esc(i.no || 'Draft')}</span>
+            ${i.priority !== 'NORMAL' ? `<div class="pri ${i.priority}">${i.priority}</div>` : ''}</td>
+        <td>${esc(i.dept)}</td>
+        <td>${esc(i.requester)}</td>
+        <td class="tab-num">${i.lines.length}</td>
+        <td>${chip(i.status)}</td>
+        <td class="tab-num ${i.submittedAt && ageDays(i) > 5 ? 'stale' : ''}">
+          ${i.submittedAt ? ageDays(i) + 'd' : '—'}</td>
+      </tr>`).join('')}</tbody>`
+    : `<tbody><tr><td><div class="empty"><h4>Queue is clear</h4>
+         <p>Nothing is waiting on anyone right now.</p></div></td></tr></tbody>`;
+
+  $$('#t-attention tr.click').forEach(tr =>
+    tr.onclick = () => openDetail(tr.dataset.id));
+}
+
+/* ==========================================================================
+   List
+   ========================================================================== */
+
+function renderList(){
+  const q = $('#q').value.trim().toLowerCase();
+  const fs = $('#fstatus').value, fd = $('#fdept').value;
+
+  $('#list-title').textContent = me.role === 'HOD' ? `${me.dept} Indents` : 'All Indents';
+  $('#list-sub').textContent = me.role === 'HOD'
+    ? 'Drafts stay private to your department until you sign them.'
+    : 'Drafts are not shown — they belong to the department until submitted.';
+
+  const rows = visible().filter(i => {
+    if (fs && i.status !== fs) return false;
+    if (fd && i.dept !== fd) return false;
+    if (!q) return true;
+    const hay = [i.no, i.requester, i.purpose, i.dept,
+      ...i.lines.map(l => `${l.item || ''} ${l.custom || ''} ${l.spec || ''}`)]
+      .join(' ').toLowerCase();
+    return hay.includes(q);
+  }).sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+  $('#t-list').innerHTML = rows.length ? `
+    <thead><tr>
+      <th>Indent No.</th><th>Date</th><th>Department</th><th>Requester</th>
+      <th>Items</th><th>Status</th><th>Waiting</th>
+    </tr></thead>
+    <tbody>${rows.map(i => `
+      <tr class="click" data-id="${i.id}">
+        <td><span class="mono" style="color:var(--brass);font-weight:700;font-size:12.5px">${esc(i.no || 'Draft')}</span>
+            ${i.priority !== 'NORMAL' ? `<div class="pri ${i.priority}">${i.priority}</div>` : ''}</td>
+        <td class="tab-num" style="font-size:12.5px;color:var(--muted)">${fmtDate(i.date)}</td>
+        <td>${esc(i.dept)}</td>
+        <td>${esc(i.requester)}<div style="font-size:11.5px;color:var(--faint)">${esc(i.requesterDesig)}</div></td>
+        <td class="tab-num">${i.lines.length}</td>
+        <td>${chip(i.status)}</td>
+        <td class="tab-num ${i.submittedAt && ageDays(i) > 5 && STATUS[i.status].open ? 'stale' : ''}">
+          ${i.submittedAt ? ageDays(i) + 'd' : '—'}</td>
+      </tr>`).join('')}</tbody>`
+    : `<tbody><tr><td><div class="empty"><h4>Nothing matches</h4>
+         <p>No indent fits that filter. Try clearing the search.</p></div></td></tr></tbody>`;
+
+  $$('#t-list tr.click').forEach(tr => tr.onclick = () => openDetail(tr.dataset.id));
+}
+
+/* ==========================================================================
+   Detail
+   ========================================================================== */
+
+function openDetail(id){
+  detailId = id;
+  const i = state.find(x => x.id === id);
+  if (!i) return;
+  const acts = actionsFor(i);
+  const lastReturn = [...i.events].reverse().find(e => ['RETURN','REJECT'].includes(e.stage));
+
+  $('#v-detail').innerHTML = `
+    <div class="page-head no-print">
+      <button class="btn btn-ghost btn-sm" id="back" style="margin-bottom:12px">← Back</button>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2 class="mono">${esc(i.no || 'Unsubmitted draft')}</h2>
+        ${chip(i.status)}
+        ${i.priority !== 'NORMAL' ? `<span class="pri ${i.priority}">${i.priority}</span>` : ''}
+      </div>
+      <p>${esc(i.dept)} · raised by ${esc(USERS.find(u=>u.id===i.raisedBy)?.name || '—')} on ${fmtDate(i.date)}</p>
+    </div>
+
+    ${lastReturn && ['RETURNED','REJECTED'].includes(i.status) ? `
+      <div class="banner banner-warn">
+        <strong>${i.status === 'RETURNED' ? 'Sent back for changes.' : 'Rejected.'}</strong>
+        ${esc(lastReturn.note || '')}
+      </div>` : ''}
+
+    <div class="stack">
+      <div class="card">
+        <div class="card-head"><h3>Details</h3></div>
+        <div class="card-body"><div class="dl">
+          <div><div class="k">Requester</div><div class="v">${esc(i.requester)}</div></div>
+          <div><div class="k">Designation</div><div class="v">${esc(i.requesterDesig)}</div></div>
+          <div><div class="k">Department</div><div class="v">${esc(i.dept)}</div></div>
+          <div><div class="k">Indent date</div><div class="v tab-num">${fmtDate(i.date)}</div></div>
+          <div><div class="k">Expected date</div><div class="v tab-num">${i.expected ? fmtDate(i.expected) : '—'}</div></div>
+          <div><div class="k">Priority</div><div class="v">${i.priority.charAt(0)+i.priority.slice(1).toLowerCase()}</div></div>
+          ${i.purpose ? `<div style="grid-column:1/-1"><div class="k">Remarks / purpose</div>
+            <div class="v">${esc(i.purpose)}</div></div>` : ''}
+        </div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Items</h3><span class="sub">${i.lines.length} rows</span></div>
+        <div class="scroll"><table>
+          <thead><tr><th style="width:38px">#</th><th>Description of item</th>
+            <th style="width:70px">UOM</th><th style="width:96px">Balance qty</th>
+            <th style="width:96px">Required qty</th></tr></thead>
+          <tbody>${i.lines.map((l,n) => `
+            <tr>
+              <td class="tab-num" style="color:var(--faint)">${n+1}</td>
+              <td><div style="font-weight:600">${esc(l.item || l.custom)}</div>
+                ${l.spec ? `<div style="font-size:12px;color:var(--muted)">${esc(l.spec)}</div>` : ''}
+                ${!l.item ? `<div style="font-size:11px;color:var(--faint);margin-top:2px">Not in the item master</div>` : ''}</td>
+              <td style="font-size:12.5px">${esc(l.uom)}</td>
+              <td class="tab-num">${l.balance ?? '—'}</td>
+              <td class="tab-num" style="font-weight:700">${l.required}</td>
+            </tr>`).join('')}</tbody>
+        </table></div>
+        <p class="note-bar">Balance quantity is the requesting department’s own figure, not a stock-system reading.</p>
+      </div>
+
+      ${acts.length ? `
+      <div class="card no-print">
+        <div class="card-head"><h3>Action</h3><span class="sub">as ${esc(me.name)}, ${esc(me.desig)}</span></div>
+        <div class="card-body"><div id="act-zone"></div></div>
+      </div>` : ''}
+
+      <div class="card">
+        <div class="card-head"><h3>History</h3><span class="sub">every signature, in order</span></div>
+        <div class="card-body">
+          <ol class="timeline">${i.events.map((e,n) => `
+            <li>
+              <div class="tl-rail"><div class="tl-dot"></div>
+                ${n < i.events.length-1 ? '<div class="tl-line"></div>' : ''}</div>
+              <div class="tl-body">
+                <div class="t">${STAGE_LABEL[e.stage]}</div>
+                <div class="m">${esc(e.who?.name || '—')} · ${esc(e.who?.desig || '')} · <span class="tab-num">${fmtDT(e.at)}</span></div>
+                ${e.note ? `<div class="tl-note">${esc(e.note)}</div>` : ''}
+              </div>
+            </li>`).join('')}</ol>
+        </div>
+      </div>
+
+      <div class="actions no-print">
+        ${i.no ? `<button class="btn btn-ghost" id="print-btn">Print / Save as PDF</button>` : ''}
+        ${(['DRAFT','RETURNED'].includes(i.status) && me.role==='HOD' && i.dept===me.dept)
+          ? `<button class="btn btn-ghost" id="edit-btn">Edit items &amp; details</button>` : ''}
+      </div>
+    </div>`;
+
+  $('#back').onclick = () => show('list');
+  const pb = $('#print-btn'); if (pb) pb.onclick = () => openPrint(i.id);
+  const eb = $('#edit-btn');  if (eb) eb.onclick = () => startEdit(i.id);
+
+  if (acts.length) renderActions(i, acts);
+  show('detail');
+}
+
+function renderActions(ind, acts){
+  const zone = $('#act-zone');
+  zone.innerHTML = `<div class="actions">${acts.map((t,n) =>
+    `<button class="btn btn-${t.tone}" data-n="${n}">${t.label}</button>`).join('')}</div>`;
+
+  $$('button', zone).forEach(b => b.onclick = () => {
+    const t = acts[+b.dataset.n];
+    zone.innerHTML = `
+      ${t.a === 'submit' ? `
+        <div class="banner banner-sign">
+          <strong>You are signing this indent as ${esc(me.name)}, ${esc(me.desig)}.</strong>
+          <div style="margin-top:5px;font-size:12.5px;color:var(--muted)">
+            This replaces your signature on the paper form. The indent number is issued now,
+            and the items are locked against later edits.
+          </div>
+        </div>` : ''}
+      <div class="field" style="margin-bottom:12px">
+        <label for="note">${t.note ? 'Reason <span class="req">*</span>' : 'Note'}</label>
+        <textarea id="note" placeholder="${t.note
+          ? 'What needs to change, and why.'
+          : 'Optional — anything the next person should know.'}"></textarea>
+        <div class="err" id="note-err"></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-${t.tone}" id="go">${t.label}</button>
+        <button class="btn btn-ghost" id="nope">Cancel</button>
+      </div>`;
+
+    $('#nope').onclick = () => renderActions(ind, acts);
+    $('#go').onclick = () => {
+      const note = $('#note').value.trim();
+      if (t.note && !note){
+        $('#note-err').textContent = 'Say why — the department needs to know what to change.';
+        $('#note').focus();
+        return;
+      }
+      apply(ind, t, note);
+      openDetail(ind.id);
+      renderDash();
+    };
+    $('#note').focus();
+  });
+}
+
+/* ==========================================================================
+   Print — a near-facsimile of the carbon-copy book
+   ========================================================================== */
+
+function openPrint(id){
+  const i = state.find(x => x.id === id);
+  const ev = s => i.events.find(e => e.stage === s);
+  const blanks = Math.max(0, 12 - i.lines.length);
+
+  const sig = (title, e) => `
+    <div class="sig"><div class="st">${title}</div>
+      ${e ? `<div style="font-weight:600">${esc(e.who.name)}</div>
+             <div>${esc(e.who.desig)}</div>
+             <div class="tab-num" style="margin-top:3px">${fmtDT(e.at)}</div>`
+          : `<div style="color:#666;font-style:italic">Pending</div>`}
+    </div>`;
+
+  $('#v-print').innerHTML = `
+    <div class="actions no-print" style="margin-bottom:16px">
+      <button class="btn btn-ghost" id="p-back">← Back</button>
+      <button class="btn btn-primary" id="p-go">Print / Save as PDF</button>
+      <span class="hint">Format parity with the paper book is deliberate — the shop floor and your
+      vendors have been reading this layout for years.</span>
+    </div>
+
+    <div class="sheet">
+      <h4>Marudhar Quartz Surfaces Private Limited</h4>
+      <p class="addr">Plot No.- PA 008-020-023, Mahindra World City Jaipur Ltd, Multi Product SEZ,
+        PO- Mahindra World City, Village- Bhambhoriya, Tehsil- Sanganer, Jaipur, Rajasthan - 302029</p>
+      <p class="ttl">Purchase Indent Form</p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 26px;margin:12px 0;
+                  border-top:1px solid #000;border-bottom:1px solid #000;padding:9px 0">
+        <div>
+          <div class="idrow"><b>Date:</b><span class="dotline">${fmtDate(i.date)}</span></div>
+          <div class="idrow"><b>Requester Name:</b><span class="dotline">${esc(i.requester)}</span></div>
+          <div class="idrow"><b>Department:</b><span class="dotline">${esc(i.dept)}</span></div>
+        </div>
+        <div>
+          <div class="idrow"><b>Indent No.:</b><span class="dotline mono">${esc(i.no || 'DRAFT')}</span></div>
+          <div class="idrow"><b>Designation:</b><span class="dotline">${esc(i.requesterDesig)}</span></div>
+          <div class="idrow"><b>Expected Date:</b><span class="dotline">${i.expected ? fmtDate(i.expected) : '—'}</span></div>
+        </div>
+      </div>
+
+      <table>
+        <thead><tr>
+          <th style="width:34px">S.No.</th>
+          <th>Description of ITEM (Item name and Specification)</th>
+          <th style="width:52px">UOM</th><th style="width:66px">Balance Qty.</th>
+          <th style="width:66px">Required Qty.</th>
+        </tr></thead>
+        <tbody>
+          ${i.lines.map((l,n) => `<tr>
+            <td style="text-align:center" class="tab-num">${n+1}</td>
+            <td>${esc(l.item || l.custom)}${l.spec ? ` — <span style="font-size:9px">${esc(l.spec)}</span>` : ''}</td>
+            <td style="text-align:center">${esc(l.uom)}</td>
+            <td style="text-align:right" class="tab-num">${l.balance ?? '—'}</td>
+            <td style="text-align:right;font-weight:700" class="tab-num">${l.required}</td>
+          </tr>`).join('')}
+          ${Array.from({length:blanks}).map(() =>
+            `<tr><td style="height:17px">&nbsp;</td><td></td><td></td><td></td><td></td></tr>`).join('')}
+        </tbody>
+      </table>
+
+      <div style="border:1px solid #000;border-top:0;padding:6px;font-size:10px;min-height:34px">
+        <b>Remarks/Purpose:</b> ${esc(i.purpose || '')}
+      </div>
+
+      <div class="sig-grid">
+        ${sig('Name of HOD', ev('SUBMIT'))}
+        ${sig('Received by Purchases Dept.', ev('PURCHASE_RECEIPT'))}
+        ${sig('Approved by / Approving Authority', ev('FINAL_APPROVAL'))}
+      </div>
+
+      <p style="font-size:8px;margin:12px 0 0;border-top:1px solid #000;padding-top:5px;line-height:1.5">
+        Generated from the Purchase Indent System on ${fmtDT(new Date().toISOString())}.
+        Approvals shown above were recorded against authenticated user accounts; this document is a
+        printed record of them, not a substitute for the system record.
+      </p>
+    </div>`;
+
+  $('#p-back').onclick = () => openDetail(id);
+  $('#p-go').onclick = () => window.print();
+  show('print');
+}
+
+/* ==========================================================================
+   Form
+   ========================================================================== */
+
+function blankLine(){
+  return {item:'', custom:'', spec:'', uom:'NOS', balance:'', required:''};
+}
+
+function startNew(){
+  editingId = null;
+  draftLines = [blankLine()];
+  $('#form-title').textContent = 'New Purchase Indent';
+  renderForm();
+  show('new');
+}
+
+function startEdit(id){
+  const i = state.find(x => x.id === id);
+  editingId = id;
+  draftLines = i.lines.map(l => ({
+    item:l.item || '', custom:l.custom || '', spec:l.spec || '',
+    uom:l.uom, balance:l.balance ?? '', required:String(l.required)
+  }));
+  $('#form-title').textContent = i.no ? `Edit ${i.no}` : 'Edit draft';
+  renderForm(i);
+  show('new');
+}
+
+function renderForm(i){
+  if (me.role !== 'HOD'){
+    $('#form-guard').innerHTML = `
+      <div class="banner banner-info">
+        <strong>Only department heads raise indents.</strong>
+        You are signed in as ${esc(me.desig)}. Switch to a department head at the top right to raise one.
+      </div>`;
+    $('#form').style.display = 'none';
+    return;
+  }
+  $('#form-guard').innerHTML = '';
+  $('#form').style.display = '';
+
+  const names = [...new Set(state.filter(x => x.dept === me.dept).map(x => x.requester))];
+
+  $('#form-head').innerHTML = `
+    <div class="field"><label for="f-date">Date <span class="req">*</span></label>
+      <input type="date" id="f-date" value="${i ? i.date : ymd(TODAY)}"></div>
+
+    <div class="field"><label for="f-dept">Department</label>
+      <input id="f-dept" value="${esc(me.dept)}" readonly>
+      <span class="hint">Taken from your account — never typed.</span></div>
+
+    <div class="field"><label for="f-pri">Priority</label>
+      <select id="f-pri">
+        ${['NORMAL','URGENT','CRITICAL'].map(p =>
+          `<option value="${p}" ${i && i.priority===p ? 'selected':''}>
+            ${p.charAt(0)+p.slice(1).toLowerCase()}</option>`).join('')}
+      </select>
+      <span class="hint">Urgent and critical sort to the top of every queue.</span></div>
+
+    <div class="field"><label for="f-req">Requester name <span class="req">*</span></label>
+      <input id="f-req" list="names" value="${i ? esc(i.requester) : ''}" placeholder="e.g. Ramesh Kumar">
+      <datalist id="names">${names.map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <span class="hint">The person who needs the material. They do not need an account.</span>
+      <span class="err" id="e-req"></span></div>
+
+    <div class="field"><label for="f-reqd">Requester designation <span class="req">*</span></label>
+      <input id="f-reqd" value="${i ? esc(i.requesterDesig) : ''}" placeholder="e.g. Shift Technician">
+      <span class="err" id="e-reqd"></span></div>
+
+    <div class="field"><label for="f-exp">Expected date</label>
+      <input type="date" id="f-exp" value="${i && i.expected ? i.expected : ''}"></div>
+
+    <div class="field full"><label for="f-purpose">Remarks / purpose</label>
+      <textarea id="f-purpose" placeholder="Why this material is needed, and for which machine or line.">${i ? esc(i.purpose) : ''}</textarea></div>`;
+
+  renderLines();
+}
+
+function renderLines(){
+  const opts = (sel) => ITEMS.map(it =>
+    `<option value="${esc(it.n)}" ${sel === it.n ? 'selected' : ''}>${esc(it.n)}${it.s ? ' — ' + esc(it.s) : ''}</option>`).join('');
+  const uomOpts = (sel) => UOMS.map(u =>
+    `<option value="${u}" ${sel === u ? 'selected' : ''}>${u}</option>`).join('');
+
+  $('#lines-tbl').innerHTML = `
+    <thead><tr>
+      <th style="width:34px">#</th><th>Description of item</th>
+      <th style="width:92px">UOM</th><th style="width:108px">Balance</th>
+      <th style="width:108px">Required</th><th style="width:40px"></th>
+    </tr></thead>
+    <tbody>${draftLines.map((l,n) => `
+      <tr>
+        <td class="rownum tab-num">${n+1}</td>
+        <td>
+          <select data-f="item" data-n="${n}" aria-label="Item for row ${n+1}">
+            <option value="">Not in the list — type below</option>${opts(l.item)}
+          </select>
+          ${!l.item ? `<input data-f="custom" data-n="${n}" value="${esc(l.custom)}"
+             placeholder="Item name and specification" style="margin-top:6px"
+             aria-label="Description for row ${n+1}">` : ''}
+        </td>
+        <td><select data-f="uom" data-n="${n}" aria-label="Unit for row ${n+1}">${uomOpts(l.uom)}</select></td>
+        <td><input data-f="balance" data-n="${n}" value="${esc(l.balance)}" inputmode="decimal"
+             placeholder="—" class="tab-num" aria-label="Balance quantity for row ${n+1}"></td>
+        <td><input data-f="required" data-n="${n}" value="${esc(l.required)}" inputmode="decimal"
+             class="tab-num" aria-label="Required quantity for row ${n+1}"></td>
+        <td><button type="button" class="del" data-del="${n}" aria-label="Remove row ${n+1}">✕</button></td>
+      </tr>`).join('')}</tbody>`;
+
+  $('#lines-cards').innerHTML = draftLines.map((l,n) => `
+    <div class="line-card">
+      <div class="line-card-head">
+        <span class="eyebrow">Item ${n+1}</span>
+        <button type="button" class="del" data-del="${n}" aria-label="Remove item ${n+1}">✕</button>
+      </div>
+      <select data-f="item" data-n="${n}" style="margin-bottom:8px" aria-label="Item for row ${n+1}">
+        <option value="">Not in the list — type below</option>${opts(l.item)}
+      </select>
+      ${!l.item ? `<input data-f="custom" data-n="${n}" value="${esc(l.custom)}"
+         placeholder="Item name and specification" style="margin-bottom:8px"
+         aria-label="Description for row ${n+1}">` : ''}
+      <div class="trio">
+        <div class="field"><label>UOM</label>
+          <select data-f="uom" data-n="${n}">${uomOpts(l.uom)}</select></div>
+        <div class="field"><label>Balance</label>
+          <input data-f="balance" data-n="${n}" value="${esc(l.balance)}" inputmode="decimal"
+            placeholder="—" class="tab-num"></div>
+        <div class="field"><label>Required</label>
+          <input data-f="required" data-n="${n}" value="${esc(l.required)}" inputmode="decimal"
+            class="tab-num"></div>
+      </div>
+    </div>`).join('');
+
+  // Picking a catalog item clears any typed description and pulls its unit
+  // across — the two paths are mutually exclusive by construction.
+  $$('[data-f]').forEach(el => {
+    el.oninput = () => {
+      const n = +el.dataset.n, f = el.dataset.f;
+      draftLines[n][f] = el.value;
+      if (f === 'item'){
+        const it = ITEMS.find(x => x.n === el.value);
+        if (it){ draftLines[n].custom = ''; draftLines[n].uom = it.u; draftLines[n].spec = it.s; }
+        renderLines();
+      }
+    };
+  });
+  $$('[data-del]').forEach(b => b.onclick = () => {
+    draftLines.splice(+b.dataset.del, 1);
+    if (!draftLines.length) draftLines = [blankLine()];
+    renderLines();
+  });
+}
+
+$('#add-line').onclick = () => { draftLines.push(blankLine()); renderLines(); };
+$('#form-cancel').onclick = () => show(editingId ? 'detail' : 'dash');
+
+$('#form').onsubmit = (e) => {
+  e.preventDefault();
+  let ok = true;
+  const req = $('#f-req').value.trim(), reqd = $('#f-reqd').value.trim();
+
+  $('#e-req').textContent = ''; $('#e-reqd').textContent = ''; $('#lines-err').textContent = '';
+  if (req.length < 2){ $('#e-req').textContent = 'Enter the requester’s name'; ok = false; }
+  if (reqd.length < 2){ $('#e-reqd').textContent = 'Enter their designation'; ok = false; }
+
+  const clean = draftLines
+    .filter(l => l.item || l.custom.trim() || String(l.required).trim())
+    .map(l => ({
+      item: l.item || null,
+      spec: l.item ? (ITEMS.find(x => x.n === l.item)?.s ?? null) : null,
+      custom: l.item ? null : (l.custom.trim() || null),
+      uom: l.uom,
+      balance: String(l.balance).trim() === '' ? null : Number(l.balance),
+      required: Number(l.required)
+    }));
+
+  if (!clean.length){ $('#lines-err').textContent = 'An indent needs at least one item.'; ok = false; }
+  else if (clean.some(l => !l.item && !l.custom))
+    { $('#lines-err').textContent = 'Every row needs an item picked or a description typed.'; ok = false; }
+  else if (clean.some(l => !(l.required > 0)))
+    { $('#lines-err').textContent = 'Every row needs a required quantity greater than zero.'; ok = false; }
+
+  if (!ok) return;
+
+  const now = new Date().toISOString();
+  if (editingId){
+    const i = state.find(x => x.id === editingId);
+    Object.assign(i, {
+      date:$('#f-date').value, requester:req, requesterDesig:reqd,
+      purpose:$('#f-purpose').value.trim(), expected:$('#f-exp').value || null,
+      priority:$('#f-pri').value, lines:clean, updatedAt:now
+    });
+    save();
+    openDetail(editingId);
+  } else {
+    const rec = {
+      id:'i'+Math.random().toString(36).slice(2,9), no:null,
+      date:$('#f-date').value, dept:me.dept, raisedBy:me.id,
+      requester:req, requesterDesig:reqd, purpose:$('#f-purpose').value.trim(),
+      expected:$('#f-exp').value || null, deptRef:'', priority:$('#f-pri').value,
+      status:'DRAFT', lines:clean, submittedAt:null, createdAt:now, updatedAt:now,
+      events:[{stage:'CREATE', to:'DRAFT', at:now, who:me}]
+    };
+    state.unshift(rec);
+    save();
+    openDetail(rec.id);
+  }
+  renderDash();
+};
+
+/* ==========================================================================
+   Navigation & boot
+   ========================================================================== */
+
+function show(v){
+  $$('.view').forEach(s => s.classList.remove('on'));
+  $('#v-' + v).classList.add('on');
+  $$('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === v)));
+  if (v === 'dash') renderDash();
+  if (v === 'list') renderList();
+  scrollTo({top:0, behavior:'instant'});
+}
+
+$$('.tab').forEach(t => t.onclick = () => {
+  if (t.dataset.view === 'new') startNew(); else show(t.dataset.view);
+});
+
+$('#role').innerHTML = USERS.map((u,n) =>
+  `<option value="${n}">${esc(u.name)} — ${esc(u.desig)}</option>`).join('');
+$('#role').onchange = e => {
+  me = USERS[+e.target.value];
+  if (detailId && $('#v-detail').classList.contains('on')) openDetail(detailId);
+  else { renderDash(); renderList(); }
+  if ($('#v-new').classList.contains('on')) renderForm();
+};
+
+$('#fstatus').innerHTML = '<option value="">All</option>' +
+  Object.entries(STATUS).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('');
+$('#fdept').innerHTML = '<option value="">All</option>' +
+  DEPTS.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+$('#q').oninput = renderList;
+$('#fstatus').onchange = renderList;
+$('#fdept').onchange = renderList;
+
+$('#theme').onclick = () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const next = cur ? (cur === 'dark' ? 'light' : 'dark') : (sysDark ? 'light' : 'dark');
+  document.documentElement.setAttribute('data-theme', next);
+  renderCharts();   // bars read their colours from CSS custom properties
+};
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderCharts);
+
+renderDash();
+renderList();
+})();
+</script>

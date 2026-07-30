@@ -1,0 +1,454 @@
+'use server';
+
+import { and, eq, inArray } from 'drizzle-orm';
+import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
+import { db } from '@/db';
+import { counters, indentEvents, indentLines, indents, uoms } from '@/db/schema';
+import type { IndentStatus } from '@/db/schema';
+import { indentSchema, transitionSchema } from '@/lib/validation';
+import { actorSnapshot, setActorCookie } from '@/lib/actor';
+import { financialYear, formatIndentNo, hashLines } from '@/lib/indent-no';
+import { findTransition, isEditable, type TransitionRule } from '@/lib/workflow';
+import { checkActionPassword } from '@/lib/action-password';
+
+/*
+ * Actions.
+ *
+ * No authentication and no permission checks — anyone who can reach the page
+ * can do any of this. What is still enforced is the *shape* of the work: the
+ * validation schema, the workflow's legal transitions, and the database's own
+ * constraints. Those are about keeping the data coherent, not about keeping
+ * people out.
+ */
+
+import type { ActionResult } from '@/lib/action-state';
+
+export type IndentActionState = ActionResult;
+
+function collectFieldErrors(issues: { path: (string | number)[]; message: string }[]) {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of issues) fieldErrors[issue.path.join('.')] = issue.message;
+  return fieldErrors;
+}
+
+type Actor = Awaited<ReturnType<typeof actorSnapshot>>;
+
+/**
+ * Map typed unit codes onto rows in the uoms master, adding any that are new.
+ *
+ * The line editor lets people type the unit instead of picking one, so the
+ * master has to accept whatever comes back. Codes are already upper-cased by
+ * the schema, and `uoms.code` is unique, so `onConflictDoNothing` plus a
+ * re-read handles two people inventing the same unit at the same moment.
+ */
+async function resolveUomIds(codes: string[]): Promise<Map<string, string>> {
+  const wanted = [...new Set(codes)];
+  const found = new Map<string, string>();
+  if (wanted.length === 0) return found;
+
+  // Deliberately not filtered by isActive: a retired code still has to resolve,
+  // and typing it is a clear sign it is wanted again.
+  const existing = await db.select().from(uoms).where(inArray(uoms.code, wanted));
+  for (const u of existing) {
+    found.set(u.code, u.id);
+    if (!u.isActive) {
+      await db.update(uoms).set({ isActive: true }).where(eq(uoms.id, u.id));
+    }
+  }
+
+  for (const code of wanted.filter((c) => !found.has(c))) {
+    const [created] = await db
+      .insert(uoms)
+      .values({ code, name: code })
+      .onConflictDoNothing()
+      .returning({ id: uoms.id });
+
+    if (created) {
+      found.set(code, created.id);
+      continue;
+    }
+
+    const [raced] = await db.select().from(uoms).where(eq(uoms.code, code)).limit(1);
+    if (raced) found.set(code, raced.id);
+  }
+
+  return found;
+}
+
+/**
+ * Write the state change and its history row.
+ *
+ * Shared by `transitionIndent` (the buttons) and `saveIndent` (Send for
+ * approval, which submits in the same step it saves). Extracted so the number
+ * is issued in exactly one place — two copies of the counter logic is how a
+ * sequence develops duplicates.
+ *
+ * Callers are responsible for authorisation. This function performs no password
+ * check, because one of its two callers does not need one.
+ */
+async function commitTransition({
+  indent,
+  rule,
+  actor,
+  note,
+}: {
+  indent: typeof indents.$inferSelect;
+  rule: TransitionRule;
+  actor: Actor;
+  note?: string;
+}): Promise<{ issuedNumber: string | null }> {
+  const lines = await db
+    .select()
+    .from(indentLines)
+    .where(eq(indentLines.indentId, indent.id));
+
+  const linesHash = hashLines(lines);
+  let issuedNumber: string | null = null;
+
+  await db.transaction(async (tx) => {
+    const patch: Partial<typeof indents.$inferInsert> = {
+      status: rule.to as IndentStatus,
+      updatedAt: new Date(),
+    };
+
+    if (rule.action === 'submit' && !indent.indentNo) {
+      /*
+       * Issue the serial number here and nowhere else.
+       *
+       * The counter row is locked FOR UPDATE inside this transaction, so two
+       * people pressing the button in the same second queue up rather than
+       * collide. A number is issued on submit, never on draft creation —
+       * otherwise every abandoned draft would burn one and the sequence would
+       * develop the same silent gaps as the paper book.
+       */
+      const fy = financialYear(new Date(indent.indentDate));
+      const prefix = process.env.INDENT_PREFIX ?? 'MQ/IND';
+
+      await tx.insert(counters).values({ fy, prefix, lastValue: 0 }).onConflictDoNothing();
+
+      const [counter] = await tx
+        .select()
+        .from(counters)
+        .where(and(eq(counters.fy, fy), eq(counters.prefix, prefix)))
+        .for('update');
+
+      const next = counter.lastValue + 1;
+
+      await tx
+        .update(counters)
+        .set({ lastValue: next })
+        .where(and(eq(counters.fy, fy), eq(counters.prefix, prefix)));
+
+      patch.indentNo = formatIndentNo(fy, next);
+      patch.fy = fy;
+      patch.submittedAt = new Date();
+      issuedNumber = patch.indentNo;
+    }
+
+    if (rule.action === 'approve') patch.approvedAt = new Date();
+
+    await tx.update(indents).set(patch).where(eq(indents.id, indent.id));
+
+    await tx.insert(indentEvents).values({
+      indentId: indent.id,
+      stage: rule.stage,
+      fromStatus: indent.status,
+      toStatus: rule.to as IndentStatus,
+      actorId: actor.id,
+      actorNameSnapshot: actor.name,
+      actorDesignationSnapshot: actor.designation,
+      note: note ?? null,
+      linesHash,
+    });
+  });
+
+  return { issuedNumber };
+}
+
+/** Switch whose name goes on the next action. A preference, not a login. */
+export async function setActingAs(personId: string): Promise<void> {
+  await setActorCookie(personId);
+  revalidatePath('/', 'layout');
+}
+
+/**
+ * Write the indent and send it for approval, in one step.
+ *
+ * The form has a single button. Saving a draft and then submitting it from a
+ * second screen was two actions for what people think of as one, and the draft
+ * in between had no purpose — nobody was reviewing it. The row is still written
+ * as a DRAFT first and then transitioned, so the history reads Created then
+ * Submitted exactly as it always did, and the number is still issued by the one
+ * function allowed to issue numbers.
+ *
+ * Lines arrive as one JSON blob rather than indexed form fields, because the
+ * line editor adds and removes rows on the client and index-based names go
+ * stale the moment a middle row is deleted.
+ */
+export async function saveIndent(
+  _prev: IndentActionState,
+  formData: FormData,
+): Promise<IndentActionState> {
+  const indentId = formData.get('indentId');
+  const rawLines = formData.get('lines');
+
+  let parsedLines: unknown = [];
+  try {
+    parsedLines = JSON.parse(typeof rawLines === 'string' ? rawLines : '[]');
+  } catch {
+    return { error: 'The item rows could not be read. Please re-enter them.' };
+  }
+
+  const parsed = indentSchema.safeParse({
+    indentDate: formData.get('indentDate'),
+    departmentId: formData.get('departmentId'),
+    requesterName: formData.get('requesterName'),
+    requesterDesignation: formData.get('requesterDesignation'),
+    purpose: formData.get('purpose'),
+    expectedDate: formData.get('expectedDate'),
+    deptRef: formData.get('deptRef'),
+    priority: formData.get('priority') ?? 'LEVEL_3',
+    lines: parsedLines,
+  });
+
+  if (!parsed.success) {
+    return { fieldErrors: collectFieldErrors(parsed.error.issues) };
+  }
+
+  const data = parsed.data;
+  const actor = await actorSnapshot();
+
+  // Typed units, resolved against the master before any line is written.
+  const uomIds = await resolveUomIds(data.lines.map((l) => l.uomCode));
+
+  /*
+   * Refuse rather than write a line with no unit.
+   *
+   * resolveUomIds only fails to produce an id if the insert and the follow-up
+   * read both came back empty, which should not happen — but the column is NOT
+   * NULL, so the alternative to checking is a 500 with the work lost.
+   */
+  const unresolved = data.lines.find((l) => !uomIds.has(l.uomCode));
+  if (unresolved) {
+    return {
+      error: `Could not record the unit “${unresolved.uomCode}”. Nothing has been saved — try a different unit.`,
+    };
+  }
+
+  let targetId: string;
+
+  if (typeof indentId === 'string' && indentId.length > 0) {
+    const [existing] = await db
+      .select()
+      .from(indents)
+      .where(eq(indents.id, indentId))
+      .limit(1);
+
+    if (!existing) return { error: 'That indent no longer exists.' };
+    if (!isEditable(existing.status)) {
+      return { error: 'This indent has been submitted and can no longer be edited.' };
+    }
+
+    await db
+      .update(indents)
+      .set({
+        indentDate: data.indentDate,
+        departmentId: data.departmentId,
+        requesterName: data.requesterName,
+        // Optional on the form; the column is NOT NULL, so blank is stored as
+        // an empty string rather than refused.
+        requesterDesignation: data.requesterDesignation ?? '',
+        purpose: data.purpose ?? null,
+        expectedDate: data.expectedDate ?? null,
+        /*
+         * Only written when the form actually sent the field.
+         *
+         * The form stopped asking for a department reference, so an unqualified
+         * `data.deptRef ?? null` would wipe the reference off every older indent
+         * the moment someone opened and re-saved it.
+         */
+        ...(formData.has('deptRef') ? { deptRef: data.deptRef ?? null } : {}),
+        priority: data.priority,
+        updatedAt: new Date(),
+      })
+      .where(eq(indents.id, indentId));
+
+    // Replace the lines wholesale — simpler than diffing, and the history lives
+    // in indent_events, so nothing is lost by doing so.
+    await db.delete(indentLines).where(eq(indentLines.indentId, indentId));
+    targetId = indentId;
+  } else {
+    const [created] = await db
+      .insert(indents)
+      .values({
+        indentDate: data.indentDate,
+        raisedById: actor.id,
+        requesterName: data.requesterName,
+        // Optional on the form; the column is NOT NULL, so blank is stored as
+        // an empty string rather than refused.
+        requesterDesignation: data.requesterDesignation ?? '',
+        departmentId: data.departmentId,
+        purpose: data.purpose ?? null,
+        expectedDate: data.expectedDate ?? null,
+        deptRef: data.deptRef ?? null,
+        priority: data.priority,
+        status: 'DRAFT',
+      })
+      .returning({ id: indents.id });
+
+    targetId = created.id;
+
+    await db.insert(indentEvents).values({
+      indentId: targetId,
+      stage: 'CREATE',
+      fromStatus: null,
+      toStatus: 'DRAFT',
+      actorId: actor.id,
+      actorNameSnapshot: actor.name,
+      actorDesignationSnapshot: actor.designation,
+    });
+  }
+
+  await db.insert(indentLines).values(
+    data.lines.map((line, i) => ({
+      indentId: targetId,
+      lineNo: i + 1,
+      itemId: line.itemId ?? null,
+      customDescription: line.customDescription ?? null,
+      specification: line.specification ?? null,
+      uomId: uomIds.get(line.uomCode)!,
+      balanceQty: line.balanceQty ?? null,
+      requiredQty: line.requiredQty,
+      expectedDate: line.expectedDate ?? null,
+      remarks: line.remarks ?? null,
+    })),
+  );
+
+  /*
+   * Send it for approval in the same step.
+   *
+   * Re-read rather than reusing the row from above: the transition needs the
+   * indent date and current status as the database has them, and on the create
+   * path only the id came back from the insert.
+   */
+  const [saved] = await db.select().from(indents).where(eq(indents.id, targetId)).limit(1);
+  const rule = findTransition('submit', saved.status);
+
+  if (!rule) {
+    // Nothing legal to do — leave it saved rather than losing the work.
+    revalidatePath('/indents');
+    redirect(`/indents/${targetId}`);
+  }
+
+  const { issuedNumber } = await commitTransition({ indent: saved, rule, actor });
+
+  revalidatePath('/indents');
+  revalidatePath(`/indents/${targetId}`);
+
+  const number = saved.indentNo ?? issuedNumber ?? '';
+  redirect(`/indents/${targetId}?decided=submit&no=${encodeURIComponent(number)}`);
+}
+
+/**
+ * Move an indent through the workflow.
+ *
+ * Every path through this function ends in an appended indent_events row —
+ * that row is what fills the printed form's signature boxes.
+ */
+export async function transitionIndent(
+  _prev: IndentActionState,
+  formData: FormData,
+): Promise<IndentActionState> {
+  const parsed = transitionSchema.safeParse({
+    indentId: formData.get('indentId'),
+    action: formData.get('action'),
+    note: formData.get('note'),
+    password: formData.get('password'),
+    returnTo: formData.get('returnTo'),
+  });
+
+  if (!parsed.success) {
+    return { fieldErrors: collectFieldErrors(parsed.error.issues) };
+  }
+
+  const { indentId, action, note, password, returnTo } = parsed.data;
+
+  const [indent] = await db
+    .select()
+    .from(indents)
+    .where(eq(indents.id, indentId))
+    .limit(1);
+
+  if (!indent) return { error: 'That indent no longer exists.' };
+
+  const rule = findTransition(action, indent.status);
+  if (!rule) {
+    return {
+      error: `This indent is ${indent.status.toLowerCase().replace('_', ' ')} — that action is not available.`,
+    };
+  }
+  /*
+   * The password gate, checked here and nowhere else that matters.
+   *
+   * The dialog asks for it in the browser, but a browser check is decoration —
+   * anyone can post to a server action directly. This is the real gate, and it
+   * runs before anything is written.
+   */
+  if (rule.requiresPassword && !checkActionPassword(password ?? '')) {
+    return {
+      fieldErrors: { password: 'Wrong password. Nothing has been changed.' },
+    };
+  }
+
+  if (rule.requiresNote && !note) {
+    return { fieldErrors: { note: 'Say why — whoever raised it needs to know.' } };
+  }
+
+  const actor = await actorSnapshot();
+
+  const lineCount = await db
+    .select({ id: indentLines.id })
+    .from(indentLines)
+    .where(eq(indentLines.indentId, indentId));
+
+  if (action === 'submit' && lineCount.length === 0) {
+    return { error: 'Add at least one item before submitting.' };
+  }
+
+  const { issuedNumber } = await commitTransition({ indent, rule, actor, note });
+
+  revalidatePath('/indents');
+  revalidatePath(`/indents/${indentId}`);
+
+  /*
+   * Say what happened, on the page they were already on.
+   *
+   * The status chip changing is easy to miss, and a dialog that just disappears
+   * leaves you wondering whether the password was even accepted. The result is
+   * carried in the URL so it survives the re-render that follows.
+   */
+  if (returnTo) {
+    const number: string = indent.indentNo ?? issuedNumber ?? '';
+    redirect(`${returnTo}?decided=${action}&no=${encodeURIComponent(number)}`);
+  }
+
+  // Stated outright, not implied by the absence of errors — see ActionResult.
+  return { ok: true };
+}
+
+/** Deleting a draft is the only true delete. Anything submitted is withdrawn,
+ *  not removed, so its number stays accounted for. */
+export async function deleteDraft(indentId: string): Promise<void> {
+  const [indent] = await db
+    .select()
+    .from(indents)
+    .where(eq(indents.id, indentId))
+    .limit(1);
+
+  if (!indent || indent.status !== 'DRAFT') return;
+
+  await db.delete(indents).where(eq(indents.id, indentId));
+  revalidatePath('/indents');
+  redirect('/indents');
+}
