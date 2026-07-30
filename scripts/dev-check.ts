@@ -339,6 +339,52 @@ async function main() {
       history.map((e) => e.stage).join(','));
     check('and the submitted state is hashed for tamper detection',
       Boolean(history.at(-1)?.linesHash));
+
+    // --- rejecting it, and the permission that guards that ----------------
+    console.log('\nRejecting, and the permission behind it');
+
+    /*
+     * Reject is now a plain form rather than a dialog, so it can be posted the
+     * way a browser without JavaScript posts it — which finally makes the
+     * server-side permission check testable over HTTP rather than only by
+     * reading the code.
+     *
+     * The form fields are lifted once, while the button is still being shown.
+     * Posting them after the permission is withdrawn is exactly the bypass the
+     * check exists to stop: the interface has taken the button away, and the
+     * request arrives regardless.
+     */
+    const detail = await get(`/indents/${saved.id}`, asFirst);
+    const rejectForm = new FormData();
+    let rejectFields = 0;
+    for (const m of detail.raw.matchAll(
+      /<input type="hidden" name="(\$ACTION[^"]*)"(?: value="([^"]*)")?\s*\/>/g,
+    )) {
+      rejectForm.set(m[1], m[2] === undefined ? '' : unescapeHtml(m[2]));
+      rejectFields++;
+    }
+    rejectForm.set('indentId', saved.id);
+    rejectForm.set('action', 'reject');
+    rejectForm.set('returnTo', '/indents');
+
+    check('Reject is a form, postable without JavaScript', rejectFields > 0,
+      `${rejectFields} action fields`);
+    check('and it asks for no reason', !detail.body.includes('name="note"'));
+
+    /*
+     * Not asserted here: that posting this form actually rejects the indent.
+     *
+     * The attempt is written up in the README. Posting it back — verbatim, and
+     * with the permission granted — is answered by Next.js with "Failed to find
+     * Server Action", so the request never reaches transitionIndent. The same
+     * approach works for saveIndent on /indents/new, so this is not simply a
+     * broken harness, and until it is understood a check here would report
+     * "the server refused it" for a request the server never ran. That reads
+     * as a passing permission test and is nothing of the kind.
+     *
+     * What is asserted above is only what was actually observed: the form is
+     * rendered, and it carries no field for a reason.
+     */
   }
 
   await cleanUpProbe();

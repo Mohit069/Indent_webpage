@@ -366,12 +366,18 @@ async function main() {
    */
   check('approve requires the password',
     findTransition('approve', 'PENDING_APPROVAL')!.requiresPassword);
-  check('reject requires the password',
-    findTransition('reject', 'PENDING_APPROVAL')!.requiresPassword);
   check('submit does not require the password',
     !findTransition('submit', 'DRAFT')!.requiresPassword);
-  check('reject demands a reason',
-    findTransition('reject', 'PENDING_APPROVAL')!.requiresNote);
+  /*
+   * Reject stopped asking for the password, and stopped asking for a written
+   * reason with it. Approving commits money; rejecting does not, and the
+   * indent can be raised again. The canReject permission is what stands
+   * behind it now — see the "Who may decide" checks.
+   */
+  check('reject does not require the password',
+    !findTransition('reject', 'PENDING_APPROVAL')!.requiresPassword);
+  check('no action asks for a written note any more',
+    TRANSITIONS.every((t) => !('requiresNote' in t)));
 
   /*
    * A password invented here, not the real one.
@@ -484,8 +490,8 @@ async function main() {
   check('an undefined state stays open', !shouldCloseAfter(undefined));
   check('a wrong password keeps the dialog open',
     !shouldCloseAfter({ fieldErrors: { password: 'That password is not correct.' } }));
-  check('a missing reason keeps the dialog open',
-    !shouldCloseAfter({ fieldErrors: { note: 'Say why.' } }));
+  check('any field error at all keeps it open',
+    !shouldCloseAfter({ fieldErrors: { somethingNew: 'Not right.' } }));
   check('a general error keeps the dialog open',
     !shouldCloseAfter({ error: 'That indent no longer exists.' }));
   check('only an explicit success closes it', shouldCloseAfter({ ok: true }));

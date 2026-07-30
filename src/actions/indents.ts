@@ -194,12 +194,10 @@ async function commitTransition({
   indent,
   rule,
   actor,
-  note,
 }: {
   indent: typeof indents.$inferSelect;
   rule: TransitionRule;
   actor: Actor;
-  note?: string;
 }): Promise<{ issuedNumber: string | null }> {
   const lines = await db
     .select()
@@ -261,7 +259,8 @@ async function commitTransition({
       actorId: actor.id,
       actorNameSnapshot: actor.name,
       actorDesignationSnapshot: actor.designation,
-      note: note ?? null,
+      // Nothing writes a note any more; the column carries older ones only.
+      note: null,
       linesHash,
     });
   });
@@ -457,7 +456,6 @@ export async function transitionIndent(
   const parsed = transitionSchema.safeParse({
     indentId: formData.get('indentId'),
     action: formData.get('action'),
-    note: formData.get('note'),
     password: formData.get('password'),
     returnTo: formData.get('returnTo'),
   });
@@ -466,7 +464,7 @@ export async function transitionIndent(
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { indentId, action, note, password, returnTo } = parsed.data;
+  const { indentId, action, password, returnTo } = parsed.data;
 
   const [indent] = await db
     .select()
@@ -493,10 +491,6 @@ export async function transitionIndent(
     return {
       fieldErrors: { password: 'Wrong password. Nothing has been changed.' },
     };
-  }
-
-  if (rule.requiresNote && !note) {
-    return { fieldErrors: { note: 'Say why — whoever raised it needs to know.' } };
   }
 
   /*
@@ -541,7 +535,7 @@ export async function transitionIndent(
     return { error: 'Add at least one item before submitting.' };
   }
 
-  const { issuedNumber } = await commitTransition({ indent, rule, actor, note });
+  const { issuedNumber } = await commitTransition({ indent, rule, actor });
 
   revalidatePath('/indents');
   revalidatePath(`/indents/${indentId}`);

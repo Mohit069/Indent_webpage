@@ -27,9 +27,13 @@ export interface TransitionRule {
   stage: EventStage;
   /** Label shown on the button that performs it. */
   label: string;
-  /** A reason is mandatory — a rejection nobody can explain is useless. */
-  requiresNote: boolean;
-  /** Whether the shared password is required to perform it. */
+  /**
+   * Whether the shared password is required to perform it.
+   *
+   * This also decides the shape of the control: an action that needs the
+   * password opens a dialog to ask for it, and one that does not is a single
+   * click that acts immediately.
+   */
   requiresPassword: boolean;
   tone: 'primary' | 'neutral' | 'danger';
 }
@@ -41,7 +45,6 @@ export const TRANSITIONS: TransitionRule[] = [
     to: 'PENDING_APPROVAL',
     stage: 'SUBMIT',
     label: 'Submit Indent',
-    requiresNote: false,
     requiresPassword: false,
     tone: 'primary',
   },
@@ -53,7 +56,6 @@ export const TRANSITIONS: TransitionRule[] = [
     to: 'APPROVED',
     stage: 'FINAL_APPROVAL',
     label: 'Approve',
-    requiresNote: false,
     requiresPassword: true,
     tone: 'primary',
   },
@@ -63,8 +65,16 @@ export const TRANSITIONS: TransitionRule[] = [
     to: 'REJECTED',
     stage: 'REJECT',
     label: 'Reject',
-    requiresNote: true,
-    requiresPassword: true,
+    /*
+     * One click, no password and no written reason.
+     *
+     * The asymmetry with Approve is deliberate rather than an oversight:
+     * approving commits money, rejecting does not, and the person who raised
+     * the indent can raise it again. What guards this now is the canReject
+     * permission — the button is only shown to, and only accepted from,
+     * someone who holds it.
+     */
+    requiresPassword: false,
     tone: 'danger',
   },
 ];

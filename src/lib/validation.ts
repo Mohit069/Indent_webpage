@@ -192,16 +192,18 @@ export function indentInputFromForm(formData: FormData, lines: unknown) {
   };
 }
 
+/*
+ * No `note` field.
+ *
+ * Rejection used to demand a written reason. It no longer does, and nothing
+ * else ever set one, so the form has nothing to send. The column on
+ * indent_events is kept — the rejections recorded before this still carry
+ * their reason, and the history has to keep resolving.
+ */
 export const transitionSchema = z.object({
   indentId: uuid,
   action: z.enum(['submit', 'approve', 'reject']),
-  note: z
-    .string()
-    .trim()
-    .max(1000)
-    .optional()
-    .or(z.literal('').transform(() => undefined)),
-  /** Required for approve and reject. Checked server-side, never in the browser. */
+  /** Required for approve. Checked server-side, never in the browser. */
   password: z
     .string()
     .max(200)

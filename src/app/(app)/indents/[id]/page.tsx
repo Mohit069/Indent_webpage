@@ -257,7 +257,8 @@ export default async function IndentDetailPage({
                       actorName={actor.name}
                     />
                     <p className="text-xs leading-relaxed text-muted">
-                      Approving or rejecting asks for the shared password.
+                      Approving asks for the shared password. Reject takes effect on
+                      the click, with no confirmation.
                     </p>
                   </>
                 ) : (

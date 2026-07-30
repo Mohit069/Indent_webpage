@@ -7,16 +7,22 @@ import { Eye, EyeOff, Check, X, Loader2 } from 'lucide-react';
 import { transitionIndent, type IndentActionState } from '@/actions/indents';
 import { shouldCloseAfter } from '@/lib/action-state';
 import type { TransitionRule } from '@/lib/workflow';
-import { Textarea, buttonClass, cn } from '@/components/ui';
+import { buttonClass, cn } from '@/components/ui';
 
 /*
- * Approve / Reject, with the shared password.
+ * Deciding an indent.
+ *
+ * Two shapes, chosen by whether the action needs the shared password:
+ *
+ *   Approve — opens a dialog, because a password has to be typed somewhere.
+ *   Reject  — one click, no dialog, no reason asked for.
+ *
+ * The asymmetry is deliberate. Approving commits money; rejecting does not,
+ * and the indent can be raised again. What stands behind Reject is the
+ * canReject permission, checked on the server before anything is written.
  *
  * Used both inline on the indent list and on the indent's own page, so the two
  * behave identically — there is one way to decide an indent, not two.
- *
- * The password is checked on the server. Nothing here validates it, and nothing
- * here knows what it is.
  */
 
 /*
@@ -30,13 +36,7 @@ import { Textarea, buttonClass, cn } from '@/components/ui';
  * you have typed stays put. That also matters after a wrong password: the
  * dialog stays open with the attempt still in the box, ready to be corrected.
  */
-function PasswordField({
-  autoFocus,
-  error,
-}: {
-  autoFocus: boolean;
-  error?: string;
-}) {
+function PasswordField({ error }: { error?: string }) {
   const [shown, setShown] = useState(false);
   // One list page renders a DecideButtons per row, so the id has to be unique.
   const fieldId = useId();
@@ -56,7 +56,7 @@ function PasswordField({
           id={fieldId}
           name="password"
           type={shown ? 'text' : 'password'}
-          autoFocus={autoFocus}
+          autoFocus
           autoComplete="off"
           autoCapitalize="off"
           autoCorrect="off"
@@ -99,6 +99,15 @@ function PasswordField({
   );
 }
 
+function ActionIcon({ action }: { action: string }) {
+  return action === 'approve' ? (
+    <Check size={16} aria-hidden />
+  ) : (
+    <X size={16} aria-hidden />
+  );
+}
+
+/** The button inside the dialog, which confirms a password-gated action. */
 function ConfirmButton({ rule }: { rule: TransitionRule }) {
   const { pending } = useFormStatus();
   return (
@@ -118,13 +127,42 @@ function ConfirmButton({ rule }: { rule: TransitionRule }) {
         </>
       ) : (
         <>
-          {rule.action === 'approve' ? (
-            <Check size={16} aria-hidden />
-          ) : (
-            <X size={16} aria-hidden />
-          )}
+          <ActionIcon action={rule.action} />
           {rule.label}
         </>
+      )}
+    </button>
+  );
+}
+
+/** A button that performs its action on the click itself — no dialog. */
+function ImmediateButton({
+  rule,
+  size,
+}: {
+  rule: TransitionRule;
+  size: 'sm' | 'md';
+}) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className={buttonClass(
+        rule.tone === 'danger' ? 'secondary' : 'primary',
+        size,
+        rule.tone === 'danger'
+          ? 'border-line-strong text-danger hover:border-red-200 hover:bg-danger-soft'
+          : undefined,
+      )}
+    >
+      {pending ? (
+        <>
+          <Loader2 size={size === 'sm' ? 13 : 16} className="animate-spin" aria-hidden />
+          Working…
+        </>
+      ) : (
+        rule.label
       )}
     </button>
   );
@@ -173,25 +211,49 @@ export function DecideButtons({
 
   if (actions.length === 0) return null;
 
+  const hidden = (action: string) => (
+    <>
+      <input type="hidden" name="indentId" value={indentId} />
+      <input type="hidden" name="action" value={action} />
+      <input type="hidden" name="returnTo" value={pathname} />
+    </>
+  );
+
   return (
     <>
-      <div className="flex flex-wrap gap-2">
-        {actions.map((rule) => (
-          <button
-            key={rule.action}
-            type="button"
-            onClick={() => setActive(rule)}
-            className={buttonClass(
-              rule.tone === 'danger' ? 'secondary' : 'primary',
-              size,
-              rule.tone === 'danger'
-                ? 'border-line-strong text-danger hover:border-red-200 hover:bg-danger-soft'
-                : undefined,
-            )}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap gap-2">
+          {actions.map((rule) =>
+            rule.requiresPassword ? (
+              <button
+                key={rule.action}
+                type="button"
+                onClick={() => setActive(rule)}
+                className={buttonClass('primary', size)}
+              >
+                {rule.label}
+              </button>
+            ) : (
+              <form key={rule.action} action={formAction}>
+                {hidden(rule.action)}
+                <ImmediateButton rule={rule} size={size} />
+              </form>
+            ),
+          )}
+        </div>
+
+        {/*
+          Errors from an immediate action have nowhere else to surface — there
+          is no dialog left open to hold them.
+        */}
+        {!active && state.error && (
+          <p
+            role="alert"
+            className="rounded-lg border border-red-200 bg-danger-soft px-3 py-2 text-xs leading-relaxed text-red-900"
           >
-            {rule.label}
-          </button>
-        ))}
+            {state.error}
+          </p>
+        )}
       </div>
 
       {active && (
@@ -211,47 +273,13 @@ export function DecideButtons({
               {active.label} {indentNo ?? 'this indent'}?
             </h2>
             <p className="mt-1 text-sm text-muted">
-              {active.action === 'approve'
-                ? 'This clears it for purchase.'
-                : 'This closes it. Whoever raised it will see your reason.'}{' '}
-              Recorded against {actorName}.
+              This clears it for purchase. Recorded against {actorName}.
             </p>
 
             <form action={formAction} className="mt-5 flex flex-col gap-4">
-              <input type="hidden" name="indentId" value={indentId} />
-              <input type="hidden" name="action" value={active.action} />
-              <input type="hidden" name="returnTo" value={pathname} />
+              {hidden(active.action)}
 
-              {active.requiresNote && (
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor={`note-${indentId}`} className="text-sm font-medium text-ink">
-                    Reason
-                    <span className="ml-0.5 text-danger" aria-hidden>
-                      *
-                    </span>
-                  </label>
-                  <Textarea
-                    id={`note-${indentId}`}
-                    name="note"
-                    rows={3}
-                    autoFocus
-                    placeholder="Why it is being rejected."
-                    className="min-h-20"
-                  />
-                  {state.fieldErrors?.note && (
-                    <span role="alert" className="text-xs font-medium text-danger">
-                      {state.fieldErrors.note}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {active.requiresPassword && (
-                <PasswordField
-                  autoFocus={!active.requiresNote}
-                  error={state.fieldErrors?.password}
-                />
-              )}
+              <PasswordField error={state.fieldErrors?.password} />
 
               {state.error && (
                 <p
