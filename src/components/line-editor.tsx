@@ -165,7 +165,6 @@ export function LineEditor({
                       <RowInput
                         value={line.customDescription}
                         onChange={(v) => update(i, { customDescription: v })}
-                        placeholder="Item name and specification"
                         className={cell}
                         label={`Item name for row ${i + 1}`}
                         error={errorFor(i, 'customDescription')}
@@ -251,7 +250,6 @@ export function LineEditor({
               <RowInput
                 value={line.customDescription}
                 onChange={(v) => update(i, { customDescription: v })}
-                placeholder="Item name and specification"
                 className={inputClass}
                 label={`Item name for row ${i + 1}`}
                 error={errorFor(i, 'customDescription')}
