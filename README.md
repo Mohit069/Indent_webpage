@@ -159,8 +159,9 @@ npm ci
 npm run build
 ```
 
-`next.config.ts` sets `output: 'standalone'`, so the build produces a
-self-contained server. Copy three things to the server:
+`next.config.ts` sets `output: 'standalone'` (except on Vercel, which builds its
+own serverless output), so the build produces a self-contained server. Copy
+three things to the server:
 
 ```
 .next/standalone/     →  the server itself
@@ -176,11 +177,43 @@ node server.js        # listens on PORT, default 3000
 
 Run it under systemd or pm2 so it restarts on boot.
 
-### Keep it on the internal network
+### Option C — Vercel
 
-With no authentication, the network *is* the access control. Bind it to the LAN,
-or put it behind a VPN. If you must reach it from outside, put a VPN in front —
-not a public hostname.
+Vercel runs the app but does **not** run a database, and it cannot reach a
+Postgres on your office network. You need a hosted one first — Neon, Supabase
+and Vercel Postgres all work; any Postgres 14+ with a public host does.
+
+```bash
+# 1. Create the database, then point at it and create the schema:
+DATABASE_URL='postgresql://…' npm run db:push
+DATABASE_URL='postgresql://…' npm run db:seed
+```
+
+Then import the repository in Vercel and set these under
+**Settings → Environment Variables** *before the first deploy*:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | the hosted connection string — use the **pooled** one |
+| `ACTION_PASSWORD` | your Approve/Reject password. No default; nothing is authorised without it |
+| `INDENT_PREFIX` | `MQ/IND` |
+
+Use the pooler endpoint, not the direct one: every concurrent request on Vercel
+is its own process with its own connection, and the direct endpoint runs out of
+connections quickly. `src/db/index.ts` detects a pooled URL (`pgbouncer=true`,
+or a `-pooler.` host) and turns off prepared statements accordingly, which
+transaction-mode poolers cannot serve.
+
+### Anything on a public URL has no door on it
+
+With no authentication, the network *is* the access control. On an internal URL
+that is fine. On Vercel it is not: the deployment is reachable by anyone who has
+or guesses the address, and that means reading every indent, and raising and
+editing them. Only Approve and Reject are gated, by `ACTION_PASSWORD`.
+
+So a public deployment is for trying the app out, not for running the business
+on. Before real indents go in, either put a password in front of the whole site
+or move it somewhere only the office can reach.
 
 Once it is on an internal URL, staff open it in any browser. On Android and iOS,
 **Add to Home Screen** makes it behave like an installed app.
