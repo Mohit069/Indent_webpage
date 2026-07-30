@@ -203,7 +203,6 @@ export function IndentForm({
               <Input
                 name="requesterDesignation"
                 defaultValue={initial?.requesterDesignation ?? ''}
-                placeholder="e.g. Shift Technician"
               />
             </Field>
 
