@@ -2,8 +2,13 @@ import { notFound } from 'next/navigation';
 import { format } from 'date-fns';
 import { Printer, Pencil, AlertTriangle, XCircle } from 'lucide-react';
 import { getIndent } from '@/lib/queries';
-import { actorSnapshot } from '@/lib/actor';
-import { availableActions, isEditable, STAGE_LABELS } from '@/lib/workflow';
+import { actorSnapshot, getActor } from '@/lib/actor';
+import {
+  allowedActions,
+  availableActions,
+  isEditable,
+  STAGE_LABELS,
+} from '@/lib/workflow';
 import { hashLines } from '@/lib/indent-no';
 import {
   Alert,
@@ -31,14 +36,26 @@ export default async function IndentDetailPage({
 }) {
   const { id } = await params;
   const flash = await searchParams;
-  const [detail, actor] = await Promise.all([getIndent(id), actorSnapshot()]);
+  const [detail, actor, deciding] = await Promise.all([
+    getIndent(id),
+    actorSnapshot(),
+    getActor(),
+  ]);
   if (!detail) notFound();
 
   const { indent, department, raisedBy, lines, events } = detail;
 
-  const actions = availableActions(indent.status);
+  /*
+   * What is legal for this indent, narrowed to what this person may do.
+   * The server re-checks the same thing before writing — this only decides
+   * which buttons are worth showing.
+   */
+  const actions = allowedActions(indent.status, deciding);
   const submitAction = actions.find((a) => a.action === 'submit');
   const decideActions = actions.filter((a) => a.action !== 'submit');
+  const decisionsExist = availableActions(indent.status).some(
+    (a) => a.action !== 'submit',
+  );
   const canEdit = isEditable(indent.status);
 
   /*
@@ -217,7 +234,7 @@ export default async function IndentDetailPage({
         </div>
 
         <div className="flex flex-col gap-6">
-          {(submitAction || decideActions.length > 0) && (
+          {(submitAction || decisionsExist) && (
             <Card className="no-print">
               <CardHeader
                 title="Action"
@@ -231,7 +248,7 @@ export default async function IndentDetailPage({
                     actorDesignation={actor.designation}
                   />
                 )}
-                {decideActions.length > 0 && (
+                {decideActions.length > 0 ? (
                   <>
                     <DecideButtons
                       indentId={indent.id}
@@ -243,6 +260,15 @@ export default async function IndentDetailPage({
                       Approving or rejecting asks for the shared password.
                     </p>
                   </>
+                ) : (
+                  decisionsExist && (
+                    <p className="rounded-lg border border-line bg-sunken px-3.5 py-3 text-sm leading-relaxed text-muted">
+                      This indent is waiting for a decision, but{' '}
+                      <span className="font-medium text-ink">{actor.name}</span> is not
+                      set up to make one. Permissions are granted under Settings →
+                      People.
+                    </p>
+                  )
                 )}
               </CardBody>
             </Card>

@@ -14,9 +14,14 @@ import {
 } from '@/db/schema';
 import type { IndentStatus } from '@/db/schema';
 import { indentInputFromForm, indentSchema, transitionSchema } from '@/lib/validation';
-import { actorSnapshot, setActorCookie } from '@/lib/actor';
+import { actorSnapshot, getActor, setActorCookie } from '@/lib/actor';
 import { financialYear, formatIndentNo, hashLines } from '@/lib/indent-no';
-import { findTransition, isEditable, type TransitionRule } from '@/lib/workflow';
+import {
+  findTransition,
+  isEditable,
+  requiredRole,
+  type TransitionRule,
+} from '@/lib/workflow';
 import { checkActionPassword } from '@/lib/action-password';
 
 /*
@@ -492,6 +497,37 @@ export async function transitionIndent(
 
   if (rule.requiresNote && !note) {
     return { fieldErrors: { note: 'Say why — whoever raised it needs to know.' } };
+  }
+
+  /*
+   * The role check, on the server, before anything is written.
+   *
+   * Hiding the buttons is a courtesy to the person looking at the screen; it is
+   * not a control, because anyone can post to a server action directly. This is
+   * where the answer is actually decided.
+   *
+   * Its reach is limited and worth stating: the acting-as name is a cookie the
+   * user chooses, so somebody can select a person who holds the flag and act as
+   * them. This stops the wrong person deciding by accident and keeps the audit
+   * trail honest. It becomes a real restraint when a sign-in verifies who is
+   * behind the name.
+   */
+  const deciding = await getActor();
+  const needed = requiredRole(action);
+
+  if (needed) {
+    if (!deciding) {
+      return {
+        error:
+          'This computer has not been set to anyone yet, so there is nobody to record the decision against.',
+      };
+    }
+    if (!deciding[needed]) {
+      const verb = action === 'approve' ? 'approve' : 'reject';
+      return {
+        error: `${deciding.name} is not set up to ${verb} indents. Someone with that permission has to do it, or it can be granted under Settings → People.`,
+      };
+    }
   }
 
   const actor = await actorSnapshot();

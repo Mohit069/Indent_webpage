@@ -165,6 +165,44 @@ async function main() {
   check('and nothing from the old three-value scale',
     !/>(Normal|Urgent|Critical)</.test(form.body));
 
+  // --- permissions on the screen ------------------------------------------
+  console.log('\nWho is shown the decision buttons');
+
+  /*
+   * Withdraw the approve permission from the person this "browser" is set to,
+   * and confirm the button stops being offered. Restored immediately after.
+   *
+   * The server refuses the action independently — that is what actually holds
+   * the line, since a hidden button stops nobody who posts directly.
+   */
+  const before = { canApprove: first.canApprove, canReject: first.canReject };
+
+  await db
+    .update(people)
+    .set({ canApprove: false, canReject: false })
+    .where(eq(people.id, first.id));
+
+  const asPowerless = await get('/indents', asFirst);
+  check('someone with no permissions is offered no Approve',
+    !asPowerless.body.includes('>Approve<'));
+  check('nor Reject', !asPowerless.body.includes('>Reject<'));
+  check('and is told why rather than left guessing',
+    asPowerless.body.includes('not set up to decide indents'));
+
+  await db
+    .update(people)
+    .set({ canApprove: true, canReject: false })
+    .where(eq(people.id, first.id));
+
+  const asApprover = await get('/indents', asFirst);
+  check('an approver is offered Approve', asApprover.body.includes('>Approve<'));
+  check('but not Reject', !asApprover.body.includes('>Reject<'));
+
+  await db.update(people).set(before).where(eq(people.id, first.id));
+
+  const restored = await get('/indents', asFirst);
+  check('permissions restored', restored.body.includes('>Approve<'));
+
   // --- the real submit, over HTTP -----------------------------------------
   console.log('\nSending an indent for approval, end to end');
 

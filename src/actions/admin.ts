@@ -39,15 +39,26 @@ export async function createPerson(
     name: formData.get('name'),
     designation: formData.get('designation'),
     phone: formData.get('phone'),
+    email: formData.get('email'),
+    // An unticked checkbox is absent from FormData, not false.
+    canApprove: formData.get('canApprove') !== null,
+    canReject: formData.get('canReject') !== null,
   });
 
   if (!parsed.success) return { fieldErrors: fieldErrorsFrom(parsed.error.issues) };
 
-  await db.insert(people).values({
-    name: parsed.data.name,
-    designation: parsed.data.designation,
-    phone: parsed.data.phone ?? null,
-  });
+  try {
+    await db.insert(people).values({
+      name: parsed.data.name,
+      designation: parsed.data.designation,
+      phone: parsed.data.phone ?? null,
+      email: parsed.data.email ?? null,
+      canApprove: parsed.data.canApprove,
+      canReject: parsed.data.canReject,
+    });
+  } catch {
+    return { error: 'Someone is already recorded with that email address.' };
+  }
 
   revalidatePath('/', 'layout');
   revalidatePath('/admin/people');
@@ -60,6 +71,48 @@ export async function setPersonActive(personId: string, isActive: boolean): Prom
   await db.update(people).set({ isActive }).where(eq(people.id, personId));
   revalidatePath('/', 'layout');
   revalidatePath('/admin/people');
+}
+
+/** Grant or withdraw the right to approve or to reject. */
+export async function setPersonRole(
+  personId: string,
+  role: 'canApprove' | 'canReject',
+  granted: boolean,
+): Promise<void> {
+  await db
+    .update(people)
+    .set(role === 'canApprove' ? { canApprove: granted } : { canReject: granted })
+    .where(eq(people.id, personId));
+
+  revalidatePath('/', 'layout');
+  revalidatePath('/admin/people');
+  // The buttons on the indent screens depend on this.
+  revalidatePath('/indents');
+}
+
+/** Change someone's recorded email address, or clear it. */
+export async function setPersonEmail(
+  _prev: AdminActionState,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const personId = String(formData.get('personId') ?? '');
+  const parsed = personSchema.shape.email.safeParse(formData.get('email'));
+
+  if (!parsed.success) {
+    return { fieldErrors: { email: parsed.error.issues[0]?.message ?? 'Invalid' } };
+  }
+
+  try {
+    await db
+      .update(people)
+      .set({ email: parsed.data ?? null })
+      .where(eq(people.id, personId));
+  } catch {
+    return { error: 'Someone is already recorded with that email address.' };
+  }
+
+  revalidatePath('/admin/people');
+  return { success: 'Email updated.' };
 }
 
 export async function createDepartment(

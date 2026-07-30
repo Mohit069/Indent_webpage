@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { Clock } from 'lucide-react';
 import type { IndentListRow } from '@/lib/queries';
-import { availableActions, isAwaitingDecision } from '@/lib/workflow';
+import type { Person } from '@/db/schema';
+import { allowedActions, isAwaitingDecision } from '@/lib/workflow';
 import { PriorityMark, StatusChip, cn } from '@/components/ui';
 import { DecideButtons } from '@/components/decide-buttons';
 
@@ -30,9 +31,12 @@ const TH = 'px-5 py-3 text-xs font-medium text-muted whitespace-nowrap';
 export function IndentTable({
   rows,
   actorName,
+  deciding,
 }: {
   rows: IndentListRow[];
   actorName: string;
+  /** Who this computer is set to, and therefore which buttons are theirs to see. */
+  deciding: Person | null;
 }) {
   return (
     <>
@@ -64,7 +68,7 @@ export function IndentTable({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const actions = availableActions(row.status).filter(
+              const actions = allowedActions(row.status, deciding).filter(
                 (a) => a.action !== 'submit',
               );
               return (
@@ -124,7 +128,7 @@ export function IndentTable({
       {/* Mobile: stacked cards. A nine-column table on a phone is unusable. */}
       <ul className="divide-y divide-line md:hidden">
         {rows.map((row) => {
-          const actions = availableActions(row.status).filter(
+          const actions = allowedActions(row.status, deciding).filter(
             (a) => a.action !== 'submit',
           );
           return (

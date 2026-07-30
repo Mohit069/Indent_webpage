@@ -1,8 +1,59 @@
 'use client';
 
 import { useTransition } from 'react';
-import { setPersonActive } from '@/actions/admin';
-import { Badge } from '@/components/ui';
+import { Check, X } from 'lucide-react';
+import { setPersonActive, setPersonRole } from '@/actions/admin';
+import { Badge, cn } from '@/components/ui';
+
+/**
+ * Grant or withdraw one permission.
+ *
+ * The server re-checks the same flag before it will move an indent, so this
+ * toggle decides what is *shown*; it is not what makes the rule hold.
+ */
+export function RoleToggle({
+  personId,
+  role,
+  granted,
+  label,
+}: {
+  personId: string;
+  role: 'canApprove' | 'canReject';
+  granted: boolean;
+  label: string;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      aria-pressed={granted}
+      title={granted ? `Withdraw: may ${label}` : `Grant: may ${label}`}
+      onClick={() => startTransition(() => setPersonRole(personId, role, !granted))}
+      className={cn(
+        'inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors disabled:opacity-50',
+        granted
+          ? 'bg-success-soft text-green-800 ring-1 ring-inset ring-green-200 hover:bg-green-100'
+          : 'bg-raised text-muted ring-1 ring-inset ring-line hover:text-ink',
+      )}
+    >
+      {pending ? (
+        '…'
+      ) : granted ? (
+        <>
+          <Check size={13} aria-hidden />
+          Yes
+        </>
+      ) : (
+        <>
+          <X size={13} aria-hidden />
+          No
+        </>
+      )}
+    </button>
+  );
+}
 
 export function PersonRow({
   personId,

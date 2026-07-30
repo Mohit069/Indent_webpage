@@ -69,6 +69,33 @@ export const TRANSITIONS: TransitionRule[] = [
   },
 ];
 
+/** The permission columns on a person that gate a decision. */
+export type PersonRole = 'canApprove' | 'canReject';
+
+/**
+ * Which permission a person needs to perform an action, if any.
+ *
+ * Submitting needs none: handing an indent over is not an authorisation. The
+ * gate is on the two actions where money starts moving.
+ */
+export function requiredRole(action: WorkflowAction): PersonRole | null {
+  if (action === 'approve') return 'canApprove';
+  if (action === 'reject') return 'canReject';
+  return null;
+}
+
+/** Everything this person is allowed to do to an indent in this state. */
+export function allowedActions(
+  status: IndentStatus,
+  person: { canApprove: boolean; canReject: boolean } | null,
+): TransitionRule[] {
+  return availableActions(status).filter((rule) => {
+    const needed = requiredRole(rule.action);
+    if (!needed) return true;
+    return Boolean(person?.[needed]);
+  });
+}
+
 /** Only a draft may be edited. Once submitted, the items are fixed. */
 export function isEditable(status: IndentStatus): boolean {
   return status === 'DRAFT';

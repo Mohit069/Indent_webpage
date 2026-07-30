@@ -20,7 +20,7 @@ export interface MasterField {
   placeholder?: string;
   hint?: string;
   required?: boolean;
-  type?: 'text' | 'select';
+  type?: 'text' | 'email' | 'select' | 'checkbox';
   options?: { value: string; label: string }[];
 }
 
@@ -61,28 +61,57 @@ export function MasterForm({
       <div
         className={`grid gap-5 sm:grid-cols-2 ${columns === 3 ? 'lg:grid-cols-3' : ''}`}
       >
-        {fields.map((f) => (
-          <Field
-            key={f.name}
-            label={f.label}
-            hint={f.hint}
-            error={state.fieldErrors?.[f.name]}
-            required={f.required}
-          >
-            {f.type === 'select' ? (
-              <Select name={f.name} defaultValue="">
-                <option value="">— none —</option>
-                {f.options?.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <Input name={f.name} placeholder={f.placeholder} />
-            )}
-          </Field>
-        ))}
+        {fields.map((f) =>
+          f.type === 'checkbox' ? (
+            /*
+             * Its own shape, not a Field: a checkbox reads as label-after-control,
+             * and the hint belongs under the pair rather than under the box.
+             */
+            <label
+              key={f.name}
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line bg-sunken px-3.5 py-3"
+            >
+              <input
+                type="checkbox"
+                name={f.name}
+                className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--primary)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-ink">{f.label}</span>
+                {f.hint && (
+                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+                    {f.hint}
+                  </span>
+                )}
+              </span>
+            </label>
+          ) : (
+            <Field
+              key={f.name}
+              label={f.label}
+              hint={f.hint}
+              error={state.fieldErrors?.[f.name]}
+              required={f.required}
+            >
+              {f.type === 'select' ? (
+                <Select name={f.name} defaultValue="">
+                  <option value="">— none —</option>
+                  {f.options?.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input
+                  name={f.name}
+                  type={f.type === 'email' ? 'email' : 'text'}
+                  placeholder={f.placeholder}
+                />
+              )}
+            </Field>
+          ),
+        )}
       </div>
 
       {state.error && (

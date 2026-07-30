@@ -2,7 +2,12 @@
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { createHash } from 'node:crypto';
-import { findTransition, TRANSITIONS } from '../src/lib/workflow';
+import {
+  allowedActions,
+  findTransition,
+  requiredRole,
+  TRANSITIONS,
+} from '../src/lib/workflow';
 import { checkActionPassword } from '../src/lib/action-password';
 import { shouldCloseAfter } from '../src/lib/action-state';
 import {
@@ -424,6 +429,45 @@ async function main() {
     leaks.length === 0,
     leaks.join(', '),
   );
+
+  // -------------------------------------------------------------------------
+  console.log('\nWho may decide');
+  // -------------------------------------------------------------------------
+  /*
+   * Permissions per person, on top of the shared password.
+   *
+   * Worth being precise about what these prove: that the rules filter
+   * correctly. They cannot prove the rules cannot be circumvented, because
+   * without a sign-in the acting-as name is the user's own choice.
+   */
+  const approver = { canApprove: true, canReject: false };
+  const rejecter = { canApprove: false, canReject: true };
+  const powerless = { canApprove: false, canReject: false };
+  const fullyTrusted = { canApprove: true, canReject: true };
+
+  check('approving needs the approve permission', requiredRole('approve') === 'canApprove');
+  check('rejecting needs the reject permission', requiredRole('reject') === 'canReject');
+  check('submitting needs no permission at all', requiredRole('submit') === null);
+
+  const names = (s: 'PENDING_APPROVAL' | 'DRAFT', p: typeof fullyTrusted | null) =>
+    allowedActions(s, p).map((a) => a.action).sort().join(',');
+
+  check('someone with both sees both decisions',
+    names('PENDING_APPROVAL', fullyTrusted) === 'approve,reject');
+  check('an approver sees only Approve',
+    names('PENDING_APPROVAL', approver) === 'approve');
+  check('a rejecter sees only Reject',
+    names('PENDING_APPROVAL', rejecter) === 'reject');
+  check('someone with neither sees no decision at all',
+    names('PENDING_APPROVAL', powerless) === '');
+  check('and nor does an unset computer',
+    names('PENDING_APPROVAL', null) === '');
+
+  check('but anyone may still submit a draft', names('DRAFT', powerless) === 'submit');
+  check('including an unset computer', names('DRAFT', null) === 'submit');
+
+  check('permissions cannot conjure an action the state forbids',
+    names('DRAFT', fullyTrusted) === 'submit');
 
   // -------------------------------------------------------------------------
   console.log('\nDialog closing');

@@ -239,6 +239,21 @@ export const personSchema = z.object({
     .regex(/^[0-9+\-\s]*$/, 'Digits only')
     .optional()
     .or(z.literal('').transform(() => undefined)),
+  /*
+   * Lower-cased, because addresses are compared case-insensitively in practice
+   * and the column is unique — Suresh@ and suresh@ must not become two people.
+   */
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('That does not look like an email address')
+    .max(200)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  /** Checkboxes arrive as "on" when ticked and are absent when not. */
+  canApprove: z.coerce.boolean().default(false),
+  canReject: z.coerce.boolean().default(false),
 });
 
 export const departmentSchema = z.object({

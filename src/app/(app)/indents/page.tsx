@@ -1,6 +1,6 @@
 import { FileText, Plus, Search } from 'lucide-react';
 import { listDepartments, listIndents, statusCounts } from '@/lib/queries';
-import { actorSnapshot } from '@/lib/actor';
+import { actorSnapshot, getActor } from '@/lib/actor';
 import { OPEN_STATUSES } from '@/lib/workflow';
 import { IndentTable } from '@/components/indent-table';
 import { DecisionBanner } from '@/components/decision-banner';
@@ -48,7 +48,7 @@ export default async function IndentsPage({
         ? [statusFilter]
         : undefined;
 
-  const [rows, counts, departments, actor] = await Promise.all([
+  const [rows, counts, departments, actor, deciding] = await Promise.all([
     listIndents({
       statuses,
       departmentId: params.dept || undefined,
@@ -57,6 +57,7 @@ export default async function IndentsPage({
     statusCounts(),
     listDepartments(),
     actorSnapshot(),
+    getActor(),
   ]);
 
   const awaiting =
@@ -187,11 +188,15 @@ export default async function IndentsPage({
             }
           />
         ) : (
-          <IndentTable rows={rows} actorName={actor.name} />
+          <IndentTable rows={rows} actorName={actor.name} deciding={deciding} />
         )}
 
         {open > 0 && rows.length > 0 && (
-          <CardNote>Approving or rejecting asks for the shared password.</CardNote>
+          <CardNote>
+            {deciding?.canApprove || deciding?.canReject
+              ? 'Approving or rejecting asks for the shared password.'
+              : `${actor.name} is not set up to decide indents, so no decision buttons are shown. Permissions are granted under Settings → People.`}
+          </CardNote>
         )}
       </Card>
     </div>

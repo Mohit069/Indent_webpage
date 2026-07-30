@@ -309,7 +309,15 @@ name — "deptRef is required", on a form with no such box.
 **One gap, stated plainly:** Approve and Reject are still proved at the function
 level rather than the transport level. They live in a dialog that only exists
 once JavaScript has run, so there is no no-JS form to post the way there is for
-the new-indent form.
+the new-indent form. That covers both the shared password and the per-person
+permission: each is checked in `transitionIndent` before anything is written,
+and each is tested against the function that does the checking — but neither has
+been exercised by an HTTP request that skips the interface.
+
+Attempting it by lifting the Submit bar's action fields and re-pointing them at
+`action=approve` did not work; Next.js ignored the re-pointed request and simply
+re-rendered the page, so it proved nothing in either direction. It is recorded
+here so nobody mistakes that silence for a passing test.
 
 ---
 

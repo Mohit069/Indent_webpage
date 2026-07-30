@@ -50,11 +50,28 @@ const CATEGORIES = [
   'Office & Stationery',
 ];
 
-/** Placeholders — replace these with the real two or three from Settings. */
+/*
+ * Placeholders — replace these with the real two or three from Settings.
+ *
+ * Only the two authorising roles are given the decision flags. The purchase
+ * officer raises and procures; making them an approver as well would put the
+ * whole chain in one pair of hands on day one, which is the arrangement the
+ * shared password exists to avoid.
+ */
 const PEOPLE = [
-  { name: 'Plant Head', designation: 'Head of Plant' },
-  { name: 'Purchase Officer', designation: 'Purchase Dept.' },
-  { name: 'Approving Authority', designation: 'Director' },
+  { name: 'Plant Head', designation: 'Head of Plant', canApprove: true, canReject: true },
+  {
+    name: 'Purchase Officer',
+    designation: 'Purchase Dept.',
+    canApprove: false,
+    canReject: false,
+  },
+  {
+    name: 'Approving Authority',
+    designation: 'Director',
+    canApprove: true,
+    canReject: true,
+  },
 ];
 
 async function main() {

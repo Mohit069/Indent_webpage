@@ -103,6 +103,34 @@ export const people = pgTable('people', {
   designation: text('designation').notNull(),
   /** Optional, purely for contact — never used to identify anyone. */
   phone: text('phone'),
+
+  /*
+   * The person's email address.
+   *
+   * Recorded so each designation has a real person behind it, and so this can
+   * become the identity a sign-in checks against later. Nothing authenticates
+   * against it today — see the note on the role flags below.
+   *
+   * Unique, but nullable: Postgres allows any number of NULLs under a unique
+   * constraint, so people without one do not collide.
+   */
+  email: text('email').unique(),
+
+  /*
+   * Who may decide an indent.
+   *
+   * Enforced on the server before any write, and used to hide the buttons from
+   * people who do not have the flag. But be clear about what that is worth
+   * while there is no sign-in: the acting-as name is a cookie the user picks,
+   * so anyone can select a person who holds the flag and act as them. These
+   * stop the wrong person deciding by accident, and make the audit trail mean
+   * something. They do not stop anyone who intends to get round them.
+   *
+   * They become a real control the moment a login verifies `email`.
+   */
+  canApprove: boolean('can_approve').notNull().default(false),
+  canReject: boolean('can_reject').notNull().default(false),
+
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
