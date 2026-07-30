@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "db:check": "tsx scripts/db-check.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:demo": "tsx scripts/demo-data.ts",
     "verify": "tsx scripts/verify.ts",
