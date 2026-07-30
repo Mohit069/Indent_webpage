@@ -187,7 +187,6 @@ export function IndentForm({
                 name="requesterName"
                 list="requester-names"
                 defaultValue={initial?.requesterName ?? ''}
-                placeholder="e.g. Ramesh Kumar"
               />
               <datalist id="requester-names">
                 {requesterSuggestions.map((n) => (
