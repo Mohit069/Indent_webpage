@@ -122,7 +122,19 @@ export const indentLineSchema = z
 export const indentSchema = z.object({
   indentDate: dateOrToday,
   /** Chosen on the form — with no accounts, it cannot be derived from anyone. */
-  departmentId: z.string().uuid('Choose a department'),
+  /*
+   * Typed, not chosen — and still mandatory.
+   *
+   * The server matches what is typed against the departments master, ignoring
+   * case, and adds it if it is genuinely new. So the column still holds a real
+   * foreign key and reporting by department still works; the list just stops
+   * being a gate on raising an indent at all.
+   */
+  departmentName: z
+    .string()
+    .trim()
+    .min(2, 'Enter a department')
+    .max(120, 'That is too long'),
   requesterName: z
     .string()
     .trim()
@@ -170,7 +182,7 @@ export function indentInputFromForm(formData: FormData, lines: unknown) {
 
   return {
     indentDate: field('indentDate'),
-    departmentId: field('departmentId'),
+    departmentName: field('departmentName'),
     requesterName: field('requesterName'),
     requesterDesignation: field('requesterDesignation'),
     purpose: field('purpose'),

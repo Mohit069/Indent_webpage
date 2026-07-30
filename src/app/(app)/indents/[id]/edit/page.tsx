@@ -21,7 +21,7 @@ export default async function EditIndentPage({
   const detail = await getIndent(id);
   if (!detail) notFound();
 
-  const { indent, lines } = detail;
+  const { indent, department, lines } = detail;
 
   if (!isEditable(indent.status)) redirect(`/indents/${id}`);
 
@@ -60,12 +60,12 @@ export default async function EditIndentPage({
           specification: i.specification,
         }))}
         uoms={uoms}
-        departments={departments.map((d) => ({ id: d.id, name: d.name }))}
+        departments={departments.map((d) => d.name)}
         requesterSuggestions={suggestions}
         initial={{
           id: indent.id,
           indentDate: indent.indentDate,
-          departmentId: indent.departmentId,
+          departmentName: department?.name ?? '',
           requesterName: indent.requesterName,
           requesterDesignation: indent.requesterDesignation,
           purpose: indent.purpose ?? '',

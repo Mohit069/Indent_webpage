@@ -52,12 +52,13 @@ export function IndentForm({
 }: {
   items: EditorItem[];
   uoms: EditorUom[];
-  departments: { id: string; name: string }[];
+  /** Existing department names, offered as you type. Not a closed list. */
+  departments: string[];
   requesterSuggestions: string[];
   initial?: {
     id: string;
     indentDate: string;
-    departmentId: string;
+    departmentName: string;
     requesterName: string;
     requesterDesignation: string;
     purpose: string;
@@ -160,17 +161,20 @@ export function IndentForm({
             <Field
               label="Department"
               hint="Which department needs this."
-              error={state.fieldErrors?.departmentId}
+              error={state.fieldErrors?.departmentName}
               required
             >
-              <Select name="departmentId" defaultValue={initial?.departmentId ?? ''}>
-                <option value="">— choose —</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
+              <Input
+                name="departmentName"
+                list="department-names"
+                defaultValue={initial?.departmentName ?? ''}
+                placeholder="e.g. Maintenance"
+              />
+              <datalist id="department-names">
+                {departments.map((name) => (
+                  <option key={name} value={name} />
                 ))}
-              </Select>
+              </datalist>
             </Field>
 
             <Field

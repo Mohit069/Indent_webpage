@@ -1,10 +1,17 @@
 'use server';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { counters, indentEvents, indentLines, indents, uoms } from '@/db/schema';
+import {
+  counters,
+  departments,
+  indentEvents,
+  indentLines,
+  indents,
+  uoms,
+} from '@/db/schema';
 import type { IndentStatus } from '@/db/schema';
 import { indentInputFromForm, indentSchema, transitionSchema } from '@/lib/validation';
 import { actorSnapshot, setActorCookie } from '@/lib/actor';
@@ -74,6 +81,97 @@ async function resolveUomIds(codes: string[]): Promise<Map<string, string>> {
   }
 
   return found;
+}
+
+/*
+ * Words that carry no meaning in a department name, so they never contribute
+ * an initial: "Utilities & Boiler House" should read UBH, not UABH.
+ */
+const NOISE_WORDS = new Set(['AND', 'OF', 'THE', 'FOR', '&']);
+
+/**
+ * A short code for a department created from a typed name.
+ *
+ * Codes are unique and appear in reports, so they are derived rather than
+ * asked for — nobody raising an indent should have to invent one.
+ *
+ * Initials for a multi-word name, the opening letters for a single word. A
+ * plain truncation was the first attempt and produced "UTILITIE" for
+ * "Utilities & Boiler House", which reads as a word cut off mid-air rather
+ * than as an abbreviation.
+ */
+function deriveDepartmentCode(name: string): string {
+  const words = name
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter((w) => w.length > 0 && !NOISE_WORDS.has(w));
+
+  if (words.length === 0) return 'DEPT';
+
+  const code =
+    words.length > 1
+      ? words.map((w) => w[0]).join('').slice(0, 6)
+      : words[0].slice(0, 5);
+
+  // The column is unique and non-empty; a single letter is too collision-prone.
+  return code.length >= 2 ? code : `${code}X`;
+}
+
+/**
+ * Map a typed department name onto a row in the departments master, adding it
+ * if it is new.
+ *
+ * Matched case-insensitively, so "maintenance" lands on the existing
+ * "Maintenance" rather than creating a second one. The column stays a real
+ * foreign key, so filtering and counting by department keep working.
+ *
+ * Returns null only if a code could not be found that is free — see the loop.
+ */
+async function resolveDepartmentId(name: string): Promise<string | null> {
+  const byName = async () =>
+    (
+      await db
+        .select({ id: departments.id, isActive: departments.isActive })
+        .from(departments)
+        .where(sql`lower(${departments.name}) = lower(${name})`)
+        .limit(1)
+    )[0];
+
+  const existing = await byName();
+  if (existing) {
+    // Typing a retired department is a clear sign it is wanted again.
+    if (!existing.isActive) {
+      await db
+        .update(departments)
+        .set({ isActive: true })
+        .where(eq(departments.id, existing.id));
+    }
+    return existing.id;
+  }
+
+  const base = deriveDepartmentCode(name);
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const code = attempt === 0 ? base : `${base.slice(0, 9)}${attempt + 1}`;
+
+    const [created] = await db
+      .insert(departments)
+      .values({ name, code })
+      .onConflictDoNothing()
+      .returning({ id: departments.id });
+
+    if (created) return created.id;
+
+    /*
+     * The insert conflicted. Either someone created this same department a
+     * moment ago — in which case use theirs — or the derived code is taken by
+     * a different department, and the next attempt tries a suffixed one.
+     */
+    const raced = await byName();
+    if (raced) return raced.id;
+  }
+
+  return null;
 }
 
 /**
@@ -226,6 +324,16 @@ export async function saveIndent(
     };
   }
 
+  const departmentId = await resolveDepartmentId(data.departmentName);
+  if (!departmentId) {
+    return {
+      fieldErrors: {
+        departmentName:
+          'Could not record that department. Try a slightly different name.',
+      },
+    };
+  }
+
   let targetId: string;
 
   if (typeof indentId === 'string' && indentId.length > 0) {
@@ -244,7 +352,7 @@ export async function saveIndent(
       .update(indents)
       .set({
         indentDate: data.indentDate,
-        departmentId: data.departmentId,
+        departmentId,
         requesterName: data.requesterName,
         // Optional on the form; the column is NOT NULL, so blank is stored as
         // an empty string rather than refused.
@@ -270,7 +378,7 @@ export async function saveIndent(
         // Optional on the form; the column is NOT NULL, so blank is stored as
         // an empty string rather than refused.
         requesterDesignation: data.requesterDesignation ?? '',
-        departmentId: data.departmentId,
+        departmentId,
         purpose: data.purpose ?? null,
         expectedDate: data.expectedDate ?? null,
         priority: data.priority,

@@ -1,4 +1,3 @@
-import { Building2 } from 'lucide-react';
 import {
   listDepartments,
   listItems,
@@ -6,9 +5,16 @@ import {
   requesterSuggestions,
 } from '@/lib/queries';
 import { IndentForm } from '@/components/indent-form';
-import { Badge, ButtonLink, Card, EmptyState, PageHeader } from '@/components/ui';
+import { Badge, PageHeader } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
+
+/*
+ * There is no longer a "you must add a department first" dead end here.
+ *
+ * The department is typed, and the server creates it if it is new, so a fresh
+ * install can raise its first indent without a detour through Settings.
+ */
 
 export default async function NewIndentPage() {
   const [items, uoms, departments, suggestions] = await Promise.all([
@@ -17,25 +23,6 @@ export default async function NewIndentPage() {
     listDepartments(),
     requesterSuggestions(),
   ]);
-
-  if (departments.length === 0) {
-    return (
-      <div className="mx-auto max-w-lg">
-        <Card>
-          <EmptyState
-            icon={<Building2 size={20} aria-hidden />}
-            title="No departments yet"
-            message="An indent belongs to a department, so add at least one before raising the first indent."
-            action={
-              <ButtonLink href="/admin/departments" tone="primary">
-                Add a department
-              </ButtonLink>
-            }
-          />
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,7 +45,7 @@ export default async function NewIndentPage() {
           specification: i.specification,
         }))}
         uoms={uoms}
-        departments={departments.map((d) => ({ id: d.id, name: d.name }))}
+        departments={departments.map((d) => d.name)}
         requesterSuggestions={suggestions}
       />
     </div>

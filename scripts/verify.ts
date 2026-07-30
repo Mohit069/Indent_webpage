@@ -516,7 +516,7 @@ async function main() {
   const indent = (over: Record<string, unknown> = {}) =>
     indentSchema.safeParse({
       indentDate: '2026-07-30',
-      departmentId: '00000000-0000-4000-8000-000000000000',
+      departmentName: 'Maintenance',
       requesterName: 'Ramesh Kumar',
       requesterDesignation: 'Shift Technician',
       priority: 'LEVEL_3',
@@ -526,7 +526,13 @@ async function main() {
 
   check('a complete indent is accepted', indent().success);
 
-  check('a department is still required', !indent({ departmentId: '' }).success);
+  check('a department is still required', !indent({ departmentName: '' }).success);
+  check('a one-letter department is refused', !indent({ departmentName: 'X' }).success);
+  check('a department is accepted as typed',
+    indent({ departmentName: 'Utilities & Boiler' }).data?.departmentName ===
+      'Utilities & Boiler');
+  check('surrounding spaces are trimmed off it',
+    indent({ departmentName: '  Stores  ' }).data?.departmentName === 'Stores');
   check('a requester name is still required', !indent({ requesterName: '' }).success);
   check('at least one item is still required', !indent({ lines: [] }).success);
   check('an item still needs a quantity',
@@ -564,7 +570,7 @@ async function main() {
     const fd = new FormData();
     const fields: Record<string, string> = {
       indentDate: '2026-07-30',
-      departmentId: '00000000-0000-4000-8000-000000000000',
+      departmentName: 'Maintenance',
       requesterName: 'Ramesh Kumar',
       requesterDesignation: 'Shift Technician',
       priority: 'LEVEL_2',
@@ -609,12 +615,12 @@ async function main() {
     /^\d{4}-\d{2}-\d{2}$/.test(sparse.success ? sparse.data.indentDate : ''));
 
   const noDept = indentSchema.safeParse(
-    indentInputFromForm(browserForm({ departmentId: '' }), oneLine),
+    indentInputFromForm(browserForm({ departmentName: '' }), oneLine),
   );
   check('a genuinely required field is still refused', !noDept.success);
   check('and it is named as the department, not as something else',
     !noDept.success &&
-      noDept.error.issues.some((i) => i.path.join('.') === 'departmentId'));
+      noDept.error.issues.some((i) => i.path.join('.') === 'departmentName'));
 
   // -------------------------------------------------------------------------
   console.log('\nWhat is still missing');
@@ -624,7 +630,7 @@ async function main() {
    * itself is already printed in red beside the field.
    */
   check('a top-level field is named the way the form names it',
-    labelForPath('departmentId') === 'Department');
+    labelForPath('departmentName') === 'Department');
   check('an item row is named by its position',
     labelForPath('lines.1.requiredQty') === 'Item 2 — Required qty');
   check('the unit reads as "Unit"', labelForPath('lines.0.uomCode') === 'Item 1 — Unit');
@@ -634,7 +640,7 @@ async function main() {
     labelForPath('somethingNew') === 'somethingNew');
 
   const missing = describeMissing({
-    departmentId: 'Choose a department',
+    departmentName: 'Enter a department',
     requesterName: 'Enter the requester’s name',
     'lines.0.requiredQty': 'Enter a quantity',
     'lines.2.uomCode': 'Enter a unit',

@@ -13,7 +13,7 @@
 
 const FIELD_LABELS: Record<string, string> = {
   indentDate: 'Date',
-  departmentId: 'Department',
+  departmentName: 'Department',
   requesterName: 'Requester name',
   requesterDesignation: 'Requester designation',
   priority: 'Priority',

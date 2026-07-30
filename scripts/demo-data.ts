@@ -19,7 +19,16 @@ import { hashLines } from '../src/lib/indent-no';
  * Real indents are left alone.
  */
 
-const DEMO_NOS = ['MQ/IND/26-27/0954', 'MQ/IND/26-27/0955'];
+/*
+ * Exactly the numbers this script issues, and nothing else.
+ *
+ * It used to list 0955 as well — a number it never created — and the cleanup
+ * loop deleted every number in this list on each run. So an indent someone
+ * genuinely submitted, which happened to receive 0955, was destroyed by a
+ * script that had no business touching it. A cleanup must only remove what its
+ * own script wrote.
+ */
+const DEMO_NOS = ['MQ/IND/26-27/0954'];
 const DRAFT_PURPOSE = 'Monthly consumables top-up for the stores.';
 
 async function main() {

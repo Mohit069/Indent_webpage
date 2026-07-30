@@ -129,6 +129,12 @@ async function main() {
    * offer what is already in the master, and that was sending people back to
    * paper for anything unusual.
    */
+  const deptInput = /<input[^>]*name="departmentName"/.test(form.body);
+  const deptSelect = /<select[^>]*name="department/.test(form.body);
+  check('the department is typed, not chosen', deptInput && !deptSelect);
+  check('existing departments are offered as suggestions',
+    form.body.includes('id="department-names"') && form.body.includes(`value="${maint.name}"`));
+
   const uomInput = /<input[^>]*aria-label="Unit for row 1"/.test(form.body);
   const uomSelect = /<select[^>]*aria-label="Unit for row 1"/.test(form.body);
   check('the unit is typed, not chosen', uomInput && !uomSelect);
@@ -219,7 +225,9 @@ async function main() {
     `${actionFields} action fields found`);
 
   submission.set('indentDate', FUTURE_DATE);
-  submission.set('departmentId', maint.id);
+  // Typed by name, in the wrong case on purpose — it must land on the existing
+  // department rather than creating a second one.
+  submission.set('departmentName', maint.name.toLowerCase());
   submission.set('requesterName', FIXTURE_REQUESTER);
   // Left blank deliberately — all three are optional, and the previous bug was
   // precisely about fields that are not filled in.
@@ -262,6 +270,14 @@ async function main() {
       saved.priority);
     check('a blank designation was stored, not refused',
       saved.requesterDesignation === '');
+    check('the typed department resolved to the existing row, whatever the case',
+      saved.departmentId === maint.id);
+
+    const departmentCount = await db
+      .select({ id: departments.id })
+      .from(departments)
+      .where(eq(departments.name, maint.name));
+    check('and did not create a duplicate department', departmentCount.length === 1);
 
     const savedLines = await db
       .select({ description: indentLines.customDescription, uom: uoms.code, qty: indentLines.requiredQty })
