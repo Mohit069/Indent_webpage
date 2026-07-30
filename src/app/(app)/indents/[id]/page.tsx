@@ -22,7 +22,7 @@ import {
   StatusChip,
 } from '@/components/ui';
 import { DecideButtons } from '@/components/decide-buttons';
-import { DecisionBanner } from '@/components/decision-banner';
+import { DecisionToast } from '@/components/decision-toast';
 import { SubmitBar } from '@/components/submit-bar';
 
 export const dynamic = 'force-dynamic';
@@ -76,7 +76,7 @@ export default async function IndentDetailPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <DecisionBanner decided={flash.decided} indentNo={flash.no} />
+      <DecisionToast decided={flash.decided} indentNo={flash.no} />
 
       <PageHeader
         breadcrumbs={[

@@ -436,11 +436,24 @@ export async function saveIndent(
 
   const { issuedNumber } = await commitTransition({ indent: saved, rule, actor });
 
+  /*
+   * Drop the cached list before leaving, so the indent that was just raised is
+   * on the page the redirect lands on rather than one refresh later. The list
+   * is force-dynamic, but the router cache would otherwise serve the copy taken
+   * before this indent existed.
+   */
   revalidatePath('/indents');
   revalidatePath(`/indents/${targetId}`);
 
+  /*
+   * To the list, not to the indent itself.
+   *
+   * Raising an indent is a task that finishes: what you want next is to see it
+   * sitting in the queue with the others, not to stare at the thing you just
+   * typed. The number travels in the URL so the toast can name it.
+   */
   const number = saved.indentNo ?? issuedNumber ?? '';
-  redirect(`/indents/${targetId}?decided=submit&no=${encodeURIComponent(number)}`);
+  redirect(`/indents?decided=submit&no=${encodeURIComponent(number)}`);
 }
 
 /**

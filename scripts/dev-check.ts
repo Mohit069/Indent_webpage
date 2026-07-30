@@ -291,6 +291,26 @@ async function main() {
   check('it is accepted', sent.status === 303, `status ${sent.status}`);
   check('and confirms it was submitted', sentTo.includes('decided=submit'), sentTo);
 
+  /*
+   * Where it lands matters as much as that it worked: raising an indent is a
+   * task that finishes, and what you want next is the queue, not the form.
+   */
+  check('it lands on the indents list, not back on the form',
+    sentTo.startsWith('/indents?'), sentTo);
+  check('carrying the number it was given',
+    sentTo.includes(encodeURIComponent(FUTURE_FY)) || /no=MQ/.test(sentTo), sentTo);
+
+  /*
+   * The list the redirect lands on must already contain it. revalidatePath runs
+   * before the redirect for exactly this reason — without it the router cache
+   * serves the copy taken before this indent existed, and it appears only after
+   * a manual refresh.
+   */
+  const landed = await get(sentTo, asFirst);
+  check('and the new indent is on that page already',
+    landed.body.includes(FIXTURE_REQUESTER), `status ${landed.status}`);
+  check('with the toast naming it', landed.body.includes('Submitted'));
+
   const [saved] = await db
     .select()
     .from(indents)

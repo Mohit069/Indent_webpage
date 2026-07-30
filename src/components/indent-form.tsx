@@ -67,7 +67,7 @@ export function IndentForm({
     lines: EditorLine[];
   };
 }) {
-  const [state, formAction] = useActionState<IndentActionState, FormData>(
+  const [state, formAction, isPending] = useActionState<IndentActionState, FormData>(
     saveIndent,
     {},
   );
@@ -99,7 +99,20 @@ export function IndentForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
-      {initial && <input type="hidden" name="indentId" value={initial.id} />}
+      {/*
+        Everything is sealed while the submission is in flight.
+
+        Disabling only the button leaves the rest of the form live: Enter in a
+        text field submits again, and a second click that lands before React
+        has re-rendered gets through. A fieldset takes the whole thing out at
+        once, and re-enables by itself if the server comes back with an error,
+        with what was typed still in place.
+
+        This is a guard against the accidental double-click, not against a
+        determined replay — that would need the server to recognise the repeat.
+      */}
+      <fieldset disabled={isPending} className="contents">
+        {initial && <input type="hidden" name="indentId" value={initial.id} />}
 
       {(missing.length > 0 || state.error) && (
         <div
@@ -273,12 +286,15 @@ export function IndentForm({
         On phones this rides just above the bottom navigation, so the button is
         always reachable without scrolling back through twelve item rows.
       */}
-      <div className="sticky bottom-[4.5rem] z-20 -mx-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line bg-canvas/95 px-4 py-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-filter-none">
-        <SendButton />
-        <p className="text-xs leading-relaxed text-muted">
-          The indent number is issued now, and the items are fixed from this point.
-        </p>
-      </div>
+        <div className="sticky bottom-[4.5rem] z-20 -mx-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line bg-canvas/95 px-4 py-3 backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-filter-none">
+          <SendButton />
+          <p className="text-xs leading-relaxed text-muted">
+            {isPending
+              ? 'Sending — do not press it again.'
+              : 'The indent number is issued now, and the items are fixed from this point.'}
+          </p>
+        </div>
+      </fieldset>
     </form>
   );
 }

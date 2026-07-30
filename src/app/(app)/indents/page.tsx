@@ -3,7 +3,7 @@ import { listDepartments, listIndents, statusCounts } from '@/lib/queries';
 import { actorSnapshot, getActor } from '@/lib/actor';
 import { OPEN_STATUSES } from '@/lib/workflow';
 import { IndentTable } from '@/components/indent-table';
-import { DecisionBanner } from '@/components/decision-banner';
+import { DecisionToast } from '@/components/decision-toast';
 import {
   ButtonLink,
   Card,
@@ -69,7 +69,7 @@ export default async function IndentsPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <DecisionBanner decided={params.decided} indentNo={params.no} />
+      <DecisionToast decided={params.decided} indentNo={params.no} />
 
       <PageHeader
         breadcrumbs={[{ label: 'Purchase', href: '/indents' }, { label: 'Indents' }]}
