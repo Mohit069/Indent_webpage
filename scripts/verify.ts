@@ -17,6 +17,7 @@ import {
   transitionSchema,
 } from '../src/lib/validation';
 import { describeMissing, labelForPath } from '../src/lib/form-summary';
+import { hashLines } from '../src/lib/indent-no';
 
 /*
  * End-to-end verification, against real Postgres.
@@ -257,31 +258,42 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\nWorkflow and audit trail');
   // -------------------------------------------------------------------------
-  function hashLines(
-    rows: { line_no: number; item_id: string | null; custom_description: string | null; uom_id: string; required_qty: string }[],
-  ) {
-    const canonical = rows
-      .slice()
-      .sort((a, b) => a.line_no - b.line_no)
-      .map((l) =>
-        [l.line_no, l.item_id ?? '', l.custom_description ?? '', l.uom_id, l.required_qty].join(''),
-      )
-      .join('');
-    return createHash('sha256').update(canonical).digest('hex');
-  }
-
-  const linesQ = await db.query<{
+  /*
+   * The real hashLines, not a copy of it.
+   *
+   * There used to be a reimplementation here, and it had drifted: it left out
+   * balanceQty entirely. So these checks were exercising an algorithm that no
+   * longer matched the one guarding real indents — production could have
+   * broken and this would still have passed. Rows come back snake_cased, so
+   * the only thing left to do locally is rename the keys.
+   */
+  type LineRow = {
     line_no: number;
     item_id: string | null;
     custom_description: string | null;
     uom_id: string;
+    balance_qty: string | null;
     required_qty: string;
-  }>(
-    `select line_no, item_id, custom_description, uom_id, required_qty
+  };
+
+  const hashRows = (rows: LineRow[]) =>
+    hashLines(
+      rows.map((r) => ({
+        lineNo: r.line_no,
+        itemId: r.item_id,
+        customDescription: r.custom_description,
+        uomId: r.uom_id,
+        balanceQty: r.balance_qty,
+        requiredQty: r.required_qty,
+      })),
+    );
+
+  const linesQ = await db.query<LineRow>(
+    `select line_no, item_id, custom_description, uom_id, balance_qty, required_qty
      from indent_lines where indent_id='77777777-7777-7777-7777-777777777777'
      order by line_no`,
   );
-  const signedHash = hashLines(linesQ.rows);
+  const signedHash = hashRows(linesQ.rows);
 
   await db.exec(`
     insert into indent_events (indent_id, stage, from_status, to_status, actor_id,
@@ -323,17 +335,11 @@ async function main() {
   await db.exec(
     `update indent_lines set required_qty = 60 where indent_id='77777777-7777-7777-7777-777777777777' and line_no=1`,
   );
-  const afterQ = await db.query<{
-    line_no: number;
-    item_id: string | null;
-    custom_description: string | null;
-    uom_id: string;
-    required_qty: string;
-  }>(
-    `select line_no, item_id, custom_description, uom_id, required_qty
+  const afterQ = await db.query<LineRow>(
+    `select line_no, item_id, custom_description, uom_id, balance_qty, required_qty
      from indent_lines where indent_id='77777777-7777-7777-7777-777777777777' order by line_no`,
   );
-  const afterHash = hashLines(afterQ.rows);
+  const afterHash = hashRows(afterQ.rows);
   check(
     'a quantity changed after approval no longer matches the signed hash',
     afterHash !== signedHash,
@@ -435,6 +441,52 @@ async function main() {
     leaks.length === 0,
     leaks.join(', '),
   );
+
+  // -------------------------------------------------------------------------
+  console.log('\nThe tamper digest survived the column being dropped');
+  // -------------------------------------------------------------------------
+  /*
+   * indent_lines.specification was removed. It was part of the canonical string
+   * hashLines builds, so dropping it from that string would change the digest
+   * of every indent already signed off — and each of them would start reporting
+   * that its items had been altered after sign-off.
+   *
+   * Every row held null, contributing an empty field, so an empty field was
+   * left in its place. This locks that decision: the literal below was computed
+   * from the algorithm as it stood BEFORE the column was removed. If someone
+   * later tidies the gap away, this fails rather than a real indent quietly
+   * accusing itself of tampering.
+   *
+   * Worth knowing when reading the canonical form: fields are joined with the
+   * ASCII unit separator and rows with the record separator, both invisible in
+   * an editor. That is also why an empty field is safe to leave — it still
+   * occupies its position, so nothing either side of it shifts.
+   */
+  const DIGEST_BEFORE_THE_COLUMN_WAS_DROPPED =
+    'f45c6e2c8d3483f42ebc7f09e88bd3d26e8d362115f3e0c11aaf3b7271b61531';
+
+  const signedLines = [
+    {
+      lineNo: 1,
+      itemId: null,
+      customDescription: 'V-belt B-52',
+      uomId: '22222222-2222-2222-2222-222222222222',
+      balanceQty: '2',
+      requiredQty: '6',
+    },
+    {
+      lineNo: 2,
+      itemId: '66666666-6666-6666-6666-666666666666',
+      customDescription: null,
+      uomId: '22222222-2222-2222-2222-222222222222',
+      balanceQty: null,
+      requiredQty: '4',
+    },
+  ];
+
+  check('an already-signed indent still hashes to the same value',
+    hashLines(signedLines) === DIGEST_BEFORE_THE_COLUMN_WAS_DROPPED,
+    hashLines(signedLines));
 
   // -------------------------------------------------------------------------
   console.log('\nWho may decide');

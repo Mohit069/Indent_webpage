@@ -80,7 +80,6 @@ export default async function EditIndentPage({
              * description box and be refused on save as having no item at all.
              */
             customDescription: l.customDescription ?? l.itemName ?? '',
-            specification: l.specification ?? '',
             uomCode: l.uomCode,
             balanceQty: l.balanceQty ?? '',
             requiredQty: l.requiredQty,

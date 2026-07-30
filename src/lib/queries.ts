@@ -33,11 +33,9 @@ export interface IndentListRow {
   requesterName: string;
   requesterDesignation: string;
   departmentName: string;
-  raisedByName: string | null;
   lineCount: number;
   submittedAt: Date | null;
   updatedAt: Date;
-  expectedDate: string | null;
 }
 
 function baseIndentSelect() {
@@ -51,17 +49,16 @@ function baseIndentSelect() {
       requesterName: indents.requesterName,
       requesterDesignation: indents.requesterDesignation,
       departmentName: departments.name,
-      raisedByName: people.name,
       submittedAt: indents.submittedAt,
       updatedAt: indents.updatedAt,
-      expectedDate: indents.expectedDate,
       lineCount: sql<number>`(
         select count(*)::int from ${indentLines} where ${indentLines.indentId} = ${indents.id}
       )`,
     })
     .from(indents)
-    .innerJoin(departments, eq(indents.departmentId, departments.id))
-    .leftJoin(people, eq(indents.raisedById, people.id));
+    // No join to people: the list shows the requester typed on the form, not
+    // whoever the machine was set to. Nothing here reads that name.
+    .innerJoin(departments, eq(indents.departmentId, departments.id));
 }
 
 export async function listIndents(
@@ -115,12 +112,10 @@ export async function getIndent(id: string) {
       lineNo: indentLines.lineNo,
       itemId: indentLines.itemId,
       customDescription: indentLines.customDescription,
-      specification: indentLines.specification,
       uomId: indentLines.uomId,
       uomCode: uoms.code,
       balanceQty: indentLines.balanceQty,
       requiredQty: indentLines.requiredQty,
-      expectedDate: indentLines.expectedDate,
       remarks: indentLines.remarks,
       itemName: items.name,
       itemCode: items.code,

@@ -188,8 +188,6 @@ export const indents = pgTable(
      * abandoned draft and reproduce the paper book's silent gaps.
      */
     indentNo: text('indent_no').unique(),
-    /** The pre-printed number from the paper book, for indents migrated at cutover. */
-    legacySerialNo: text('legacy_serial_no'),
     /** Financial year the number belongs to, e.g. "26-27". */
     fy: text('fy'),
 
@@ -218,7 +216,6 @@ export const indents = pgTable(
 
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
-    closedAt: timestamp('closed_at', { withTimezone: true }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -245,7 +242,6 @@ export const indentLines = pgTable(
     itemId: uuid('item_id').references(() => items.id),
     customDescription: text('custom_description'),
 
-    specification: text('specification'),
     uomId: uuid('uom_id')
       .notNull()
       .references(() => uoms.id),
@@ -258,7 +254,6 @@ export const indentLines = pgTable(
     balanceQty: numeric('balance_qty', { precision: 14, scale: 3 }),
     requiredQty: numeric('required_qty', { precision: 14, scale: 3 }).notNull(),
 
-    expectedDate: date('expected_date'),
     remarks: text('remarks'),
   },
   (t) => [

@@ -197,9 +197,9 @@ export default async function IndentDetailPage({
                         <div className="font-medium text-ink">
                           {line.itemName ?? line.customDescription}
                         </div>
-                        {(line.specification ?? line.itemSpecification) && (
+                        {line.itemSpecification && (
                           <div className="mt-0.5 text-xs text-muted">
-                            {line.specification ?? line.itemSpecification}
+                            {line.itemSpecification}
                           </div>
                         )}
                         {/*

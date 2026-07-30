@@ -65,51 +65,53 @@ const uomCode = z
 /**
  * One line of the indent table.
  *
- * A line names either a catalog item or a free-text description — never both,
- * never neither. The catalog is not mandatory on day one because forcing it
- * would push people back to paper; Purchase promotes recurring free-text lines
- * into the master afterwards.
+ * Every field here has a box on the form. Three that used to live here do not,
+ * and were removed because nothing could ever fill them:
+ *
+ *   itemId        — set by the catalog dropdown, which is gone. The column is
+ *                   kept for the rows that already reference an item.
+ *   specification — never had an input of its own; the item name box carries
+ *                   the specification, as its old placeholder said.
+ *   expectedDate  — per-line date. There is one date on the indent as a whole
+ *                   and never was one per row.
+ *
+ * They cost nothing to leave in and were still a real hazard: a schema field
+ * that no form can fill is exactly how a phantom required field appears.
  */
-export const indentLineSchema = z
-  .object({
-    itemId: uuid.optional().or(z.literal('').transform(() => undefined)),
-    customDescription: z
-      .string()
-      .trim()
-      .max(500, 'Keep it under 500 characters')
-      .optional()
-      .or(z.literal('').transform(() => undefined)),
-    specification: z
-      .string()
-      .trim()
-      .max(500)
-      .optional()
-      .or(z.literal('').transform(() => undefined)),
-    /*
-     * The unit is typed, not chosen.
-     *
-     * A dropdown meant that anything not already in the master could not be
-     * indented at all, which sent people back to the paper book for exactly the
-     * odd items the catalog was worst at. The server resolves what is typed
-     * against the uoms table and adds it if it is new, so the master still ends
-     * up complete — it just grows from real use rather than being guessed at up
-     * front. Upper-cased so "kg" and "KG" cannot become two rows.
-     */
-    uomCode,
-    balanceQty: optionalQuantity,
-    requiredQty: quantity,
-    expectedDate: isoDate.optional().or(z.literal('').transform(() => undefined)),
-    remarks: z
-      .string()
-      .trim()
-      .max(500)
-      .optional()
-      .or(z.literal('').transform(() => undefined)),
-  })
-  .refine((l) => Boolean(l.itemId) !== Boolean(l.customDescription), {
-    message: 'Pick an item from the list, or type a description — not both',
-    path: ['customDescription'],
-  });
+export const indentLineSchema = z.object({
+  /*
+   * The item, as typed. Required — a row without one is not an item.
+   *
+   * This was an exclusive-or against a catalog id, with the message "pick an
+   * item from the list, or type a description". Once the list was removed the
+   * rule still worked but the message told people to use a control that was no
+   * longer on the page.
+   */
+  customDescription: z
+    .string()
+    .trim()
+    .min(1, 'Enter the item')
+    .max(500, 'Keep it under 500 characters'),
+  /*
+   * The unit is typed, not chosen.
+   *
+   * A dropdown meant that anything not already in the master could not be
+   * indented at all, which sent people back to the paper book for exactly the
+   * odd items the catalog was worst at. The server resolves what is typed
+   * against the uoms table and adds it if it is new, so the master still ends
+   * up complete — it just grows from real use rather than being guessed at up
+   * front. Upper-cased so "kg" and "KG" cannot become two rows.
+   */
+  uomCode,
+  balanceQty: optionalQuantity,
+  requiredQty: quantity,
+  remarks: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+});
 
 /*
  * What an indent cannot do without.
@@ -287,8 +289,14 @@ export const itemSchema = z.object({
   defaultUomId: uuid,
 });
 
-export type IndentInput = z.infer<typeof indentSchema>;
-export type IndentLineInput = z.infer<typeof indentLineSchema>;
-export type TransitionInput = z.infer<typeof transitionSchema>;
-export type PersonInput = z.infer<typeof personSchema>;
-export type ItemInput = z.infer<typeof itemSchema>;
+/*
+ * No inferred-type exports.
+ *
+ * There were five — IndentInput, IndentLineInput, TransitionInput, PersonInput,
+ * ItemInput — and not one had an importer anywhere in src/ or scripts/. Every
+ * caller already derives what it needs from the schema at the point of use,
+ * which is what stops the two drifting apart; a second name for the same shape
+ * is one more thing that has to be kept true.
+ *
+ * Add one back the moment something actually imports it.
+ */

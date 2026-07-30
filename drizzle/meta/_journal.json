@@ -29,6 +29,13 @@
       "when": 1785406465029,
       "tag": "0003_people_email_and_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785410229735,
+      "tag": "0004_drop_orphan_columns",
+      "breakpoints": true
     }
   ]
 }

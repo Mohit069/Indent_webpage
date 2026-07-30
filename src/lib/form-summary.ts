@@ -23,9 +23,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 const LINE_FIELD_LABELS: Record<string, string> = {
-  itemId: 'Item',
   customDescription: 'Description',
-  specification: 'Specification',
   uomCode: 'Unit',
   balanceQty: 'Balance qty',
   requiredQty: 'Required qty',

@@ -407,13 +407,15 @@ export async function saveIndent(
     data.lines.map((line, i) => ({
       indentId: targetId,
       lineNo: i + 1,
-      itemId: line.itemId ?? null,
-      customDescription: line.customDescription ?? null,
-      specification: line.specification ?? null,
+      /*
+       * itemId is left to its default of null. The catalog dropdown that used
+       * to set it is gone, so a line raised here is always free text; the
+       * column stays for the rows that already point at an item.
+       */
+      customDescription: line.customDescription,
       uomId: uomIds.get(line.uomCode)!,
       balanceQty: line.balanceQty ?? null,
       requiredQty: line.requiredQty,
-      expectedDate: line.expectedDate ?? null,
       remarks: line.remarks ?? null,
     })),
   );

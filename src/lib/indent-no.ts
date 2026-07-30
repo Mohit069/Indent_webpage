@@ -43,7 +43,6 @@ export function hashLines(
     lineNo: number;
     itemId: string | null;
     customDescription: string | null;
-    specification: string | null;
     uomId: string;
     balanceQty: string | null;
     requiredQty: string;
@@ -57,7 +56,18 @@ export function hashLines(
         l.lineNo,
         l.itemId ?? '',
         l.customDescription ?? '',
-        l.specification ?? '',
+        /*
+         * The empty slot is where a per-line `specification` used to sit.
+         *
+         * That column has been dropped: nothing ever wrote it, and every row
+         * held null — which contributed exactly this empty string. Removing
+         * the slot as well would shorten the canonical form and change the
+         * digest of every indent already signed off, so each would begin
+         * claiming its items had been altered afterwards. The gap stays so
+         * those hashes keep verifying. It costs one empty string; the
+         * alternative is a false tamper warning on real records.
+         */
+        '',
         l.uomId,
         l.balanceQty ?? '',
         l.requiredQty,

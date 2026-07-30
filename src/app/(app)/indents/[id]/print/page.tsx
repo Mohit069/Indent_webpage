@@ -104,10 +104,10 @@ export default async function PrintIndentPage({
                 <Td className="text-center tabular">{line.lineNo}</Td>
                 <Td>
                   {line.itemName ?? line.customDescription}
-                  {(line.specification ?? line.itemSpecification) && (
+                  {line.itemSpecification && (
                     <span className="text-[9px]">
                       {' — '}
-                      {line.specification ?? line.itemSpecification}
+                      {line.itemSpecification}
                     </span>
                   )}
                 </Td>

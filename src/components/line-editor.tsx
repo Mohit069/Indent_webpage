@@ -29,7 +29,6 @@ export interface EditorUom {
 
 export interface EditorLine {
   customDescription: string;
-  specification: string;
   uomCode: string;
   balanceQty: string;
   requiredQty: string;
@@ -39,7 +38,6 @@ export interface EditorLine {
 export function emptyLine(defaultUomCode: string): EditorLine {
   return {
     customDescription: '',
-    specification: '',
     uomCode: defaultUomCode,
     balanceQty: '',
     requiredQty: '',
@@ -99,7 +97,6 @@ export function LineEditor({
       .filter((l) => l.customDescription || l.requiredQty)
       .map((l) => ({
         customDescription: l.customDescription || undefined,
-        specification: l.specification || undefined,
         uomCode: l.uomCode,
         balanceQty: l.balanceQty || undefined,
         requiredQty: l.requiredQty,
