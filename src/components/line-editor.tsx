@@ -183,7 +183,6 @@ export function LineEditor({
                     <RowInput
                       value={line.uomCode}
                       onChange={(v) => update(i, { uomCode: v })}
-                      placeholder="NOS"
                       className={cn(cell, 'uppercase')}
                       label={`Unit for row ${i + 1}`}
                       error={errorFor(i, 'uomCode')}
@@ -262,7 +261,6 @@ export function LineEditor({
                   <RowInput
                     value={line.uomCode}
                     onChange={(v) => update(i, { uomCode: v })}
-                    placeholder="NOS"
                     className={cn(inputClass, 'px-3 uppercase')}
                     error={errorFor(i, 'uomCode')}
                     list={uomListId}
