@@ -291,10 +291,25 @@ first. Next.js inlines a serialised copy of the React tree for client-side
 navigation, and that copy includes segments the layout chose not to render —
 without stripping it, a check can pass on text nobody can see.
 
-**One gap, stated plainly:** the checks do not POST a server action over HTTP, so
-"a wrong password submitted through the real endpoint is refused" is proved at
-the function level, not the transport level. Doing it over HTTP means scraping
-Next.js's generated action id out of a client chunk, which breaks on every build.
+It also posts the new-indent form for real — the actual server action, over
+HTTP, followed by reading the row back out of the database. It does that the way
+a browser with JavaScript disabled does, carrying over the `$ACTION_*` hidden
+inputs Next.js renders into the form, so no generated action id is hardcoded and
+it survives those ids changing on every build. The submission is dated into a
+far-future financial year, so it gets its own counter and cannot take a number
+out of the real sequence; the indent and that counter are deleted afterwards.
+
+That check exists because of a bug that reached the user. Both suites were green
+while the form could not be submitted at all, because neither covered the seam
+between them: `formData.get()` answers `null` for a field that is no longer on
+the page, and Zod's `.optional()` accepts `undefined` but rejects `null`. A field
+deleted from the form therefore became a *required* field, failing under its own
+name — "deptRef is required", on a form with no such box.
+
+**One gap, stated plainly:** Approve and Reject are still proved at the function
+level rather than the transport level. They live in a dialog that only exists
+once JavaScript has run, so there is no no-JS form to post the way there is for
+the new-indent form.
 
 ---
 

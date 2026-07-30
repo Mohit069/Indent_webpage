@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../src/db';
 import {
+  counters,
   departments,
   indentEvents,
   indentLines,
@@ -157,6 +158,141 @@ async function main() {
   }
   check('and nothing from the old three-value scale',
     !/>(Normal|Urgent|Critical)</.test(form.body));
+
+  // --- the real submit, over HTTP -----------------------------------------
+  console.log('\nSending an indent for approval, end to end');
+
+  /*
+   * This posts the actual form to the actual server action and then looks in
+   * the database for the row.
+   *
+   * It exists because everything else in this file reads rendered HTML, and
+   * everything in verify.ts hands hand-built objects to the schema — so both
+   * suites passed green while the real form was refusing to submit. The bug was
+   * in the one seam neither covered: FormData answers `null` for a field that
+   * is no longer on the page, and Zod's `.optional()` rejects null, so a field
+   * removed from the UI came back as a required-field error.
+   *
+   * No action id is hardcoded. Next.js renders $ACTION_* hidden inputs into the
+   * form for browsers without JavaScript; carrying those over is exactly what
+   * such a browser does, and it survives the ids changing on every build.
+   *
+   * It is dated into a far-future financial year on purpose. Numbers are issued
+   * per financial year, so this gets its own counter and cannot burn a number
+   * out of the real sequence. Both the indent and that counter are removed
+   * afterwards.
+   */
+  const FUTURE_DATE = '2099-04-01';
+  const FUTURE_FY = '99-00';
+
+  const unescapeHtml = (s: string) =>
+    s
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&#x27;/g, "'");
+
+  async function cleanUpProbe() {
+    const rows = await db
+      .select({ id: indents.id })
+      .from(indents)
+      .where(eq(indents.requesterName, FIXTURE_REQUESTER));
+    for (const r of rows) await db.delete(indents).where(eq(indents.id, r.id));
+    await db.delete(counters).where(eq(counters.fy, FUTURE_FY));
+  }
+
+  await cleanUpProbe();
+
+  const formPage = await get('/indents/new', asFirst);
+  const submission = new FormData();
+
+  let actionFields = 0;
+  for (const m of formPage.raw.matchAll(
+    /<input type="hidden" name="(\$ACTION[^"]*)"(?: value="([^"]*)")?\s*\/>/g,
+  )) {
+    submission.set(m[1], m[2] === undefined ? '' : unescapeHtml(m[2]));
+    actionFields++;
+  }
+
+  check('the form can be submitted without JavaScript', actionFields > 0,
+    `${actionFields} action fields found`);
+
+  submission.set('indentDate', FUTURE_DATE);
+  submission.set('departmentId', maint.id);
+  submission.set('requesterName', FIXTURE_REQUESTER);
+  // Left blank deliberately — all three are optional, and the previous bug was
+  // precisely about fields that are not filled in.
+  submission.set('requesterDesignation', '');
+  submission.set('expectedDate', '');
+  submission.set('purpose', '');
+  submission.set('priority', 'LEVEL_1');
+  submission.set(
+    'lines',
+    JSON.stringify([
+      { customDescription: 'End-to-end probe item', uomCode: '', requiredQty: '3' },
+    ]),
+  );
+
+  const sent = await fetch(`${BASE}/indents/new`, {
+    method: 'POST',
+    headers: { cookie: asFirst },
+    body: submission,
+    redirect: 'manual',
+  });
+
+  const sentTo = sent.headers.get('location') ?? '';
+  check('it is accepted', sent.status === 303, `status ${sent.status}`);
+  check('and confirms it was submitted', sentTo.includes('decided=submit'), sentTo);
+
+  const [saved] = await db
+    .select()
+    .from(indents)
+    .where(eq(indents.requesterName, FIXTURE_REQUESTER))
+    .limit(1);
+
+  check('the indent is in the database', Boolean(saved));
+
+  if (saved) {
+    check('it was given a number', (saved.indentNo ?? '').includes(FUTURE_FY),
+      saved.indentNo ?? 'none');
+    check('it is waiting for approval', saved.status === 'PENDING_APPROVAL',
+      saved.status);
+    check('the priority it was sent with was kept', saved.priority === 'LEVEL_1',
+      saved.priority);
+    check('a blank designation was stored, not refused',
+      saved.requesterDesignation === '');
+
+    const savedLines = await db
+      .select({ description: indentLines.customDescription, uom: uoms.code, qty: indentLines.requiredQty })
+      .from(indentLines)
+      .innerJoin(uoms, eq(indentLines.uomId, uoms.id))
+      .where(eq(indentLines.indentId, saved.id));
+
+    check('its item was written', savedLines.length === 1);
+    check('with the description typed', savedLines[0]?.description === 'End-to-end probe item');
+    check('and a blank unit fell back to NOS', savedLines[0]?.uom === 'NOS',
+      savedLines[0]?.uom);
+
+    const history = await db
+      .select()
+      .from(indentEvents)
+      .where(eq(indentEvents.indentId, saved.id))
+      .orderBy(indentEvents.createdAt);
+
+    check('the history records it being created then submitted',
+      history.map((e) => e.stage).join(',') === 'CREATE,SUBMIT',
+      history.map((e) => e.stage).join(','));
+    check('and the submitted state is hashed for tamper detection',
+      Boolean(history.at(-1)?.linesHash));
+  }
+
+  await cleanUpProbe();
+  const leftover = await db
+    .select({ id: indents.id })
+    .from(indents)
+    .where(eq(indents.requesterName, FIXTURE_REQUESTER));
+  check('the probe cleans up after itself', leftover.length === 0);
 
   // --- device setup -------------------------------------------------------
   console.log('\nDevice identity');

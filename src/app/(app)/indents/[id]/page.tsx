@@ -141,10 +141,6 @@ export default async function IndentDetailPage({
                 <Detail label="Department" value={department?.name ?? '—'} />
                 <Detail label="Indent date" value={indent.indentDate} mono />
                 <Detail label="Expected date" value={indent.expectedDate ?? '—'} mono />
-                {/* No longer collected. Still shown on the indents that carry one. */}
-                {indent.deptRef && (
-                  <Detail label="Department reference" value={indent.deptRef} />
-                )}
                 {indent.purpose && (
                   <div className="sm:col-span-2 lg:col-span-3">
                     <Detail label="Remarks / purpose" value={indent.purpose} />

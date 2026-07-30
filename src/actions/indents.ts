@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { counters, indentEvents, indentLines, indents, uoms } from '@/db/schema';
 import type { IndentStatus } from '@/db/schema';
-import { indentSchema, transitionSchema } from '@/lib/validation';
+import { indentInputFromForm, indentSchema, transitionSchema } from '@/lib/validation';
 import { actorSnapshot, setActorCookie } from '@/lib/actor';
 import { financialYear, formatIndentNo, hashLines } from '@/lib/indent-no';
 import { findTransition, isEditable, type TransitionRule } from '@/lib/workflow';
@@ -200,17 +200,7 @@ export async function saveIndent(
     return { error: 'The item rows could not be read. Please re-enter them.' };
   }
 
-  const parsed = indentSchema.safeParse({
-    indentDate: formData.get('indentDate'),
-    departmentId: formData.get('departmentId'),
-    requesterName: formData.get('requesterName'),
-    requesterDesignation: formData.get('requesterDesignation'),
-    purpose: formData.get('purpose'),
-    expectedDate: formData.get('expectedDate'),
-    deptRef: formData.get('deptRef'),
-    priority: formData.get('priority') ?? 'LEVEL_3',
-    lines: parsedLines,
-  });
+  const parsed = indentSchema.safeParse(indentInputFromForm(formData, parsedLines));
 
   if (!parsed.success) {
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
@@ -261,14 +251,6 @@ export async function saveIndent(
         requesterDesignation: data.requesterDesignation ?? '',
         purpose: data.purpose ?? null,
         expectedDate: data.expectedDate ?? null,
-        /*
-         * Only written when the form actually sent the field.
-         *
-         * The form stopped asking for a department reference, so an unqualified
-         * `data.deptRef ?? null` would wipe the reference off every older indent
-         * the moment someone opened and re-saved it.
-         */
-        ...(formData.has('deptRef') ? { deptRef: data.deptRef ?? null } : {}),
         priority: data.priority,
         updatedAt: new Date(),
       })
@@ -291,7 +273,6 @@ export async function saveIndent(
         departmentId: data.departmentId,
         purpose: data.purpose ?? null,
         expectedDate: data.expectedDate ?? null,
-        deptRef: data.deptRef ?? null,
         priority: data.priority,
         status: 'DRAFT',
       })

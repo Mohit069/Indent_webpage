@@ -28,11 +28,14 @@ const optionalQuantity = z
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a valid date');
 
-/** A cleared date box means today, not an error. */
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/** A cleared — or absent — date box means today, not an error. */
 const dateOrToday = z
   .string()
   .trim()
-  .transform((v) => (v.length === 0 ? new Date().toISOString().slice(0, 10) : v))
+  .optional()
+  .transform((v) => (v && v.length > 0 ? v : todayIso()))
   .pipe(isoDate);
 
 /**
@@ -138,24 +141,44 @@ export const indentSchema = z.object({
     .optional()
     .or(z.literal('').transform(() => undefined)),
   expectedDate: isoDate.optional().or(z.literal('').transform(() => undefined)),
-  /*
-   * No longer collected — the form stopped asking for it.
-   *
-   * Kept optional here, and preserved rather than overwritten on update, so the
-   * indents raised before it was dropped keep the reference they were given.
-   */
-  deptRef: z
-    .string()
-    .trim()
-    .max(60)
-    .optional()
-    .or(z.literal('').transform(() => undefined)),
   priority: z.enum(['ASAP', 'LEVEL_1', 'LEVEL_2', 'LEVEL_3']),
   lines: z
     .array(indentLineSchema)
     .min(1, 'An indent needs at least one item')
     .max(50, 'Split this across more than one indent'),
 });
+
+/**
+ * FormData → the object `indentSchema` expects.
+ *
+ * The reason this exists rather than being written inline at the call site:
+ * `formData.get()` answers `null` for a field the form did not render, and a
+ * Zod `.optional()` accepts `undefined` but rejects `null`. So deleting a box
+ * from the form silently turned it into a *required* field — the server kept
+ * reading it, got null, and reported the field as invalid under its own name.
+ * That is exactly how "deptRef" came to be demanded by a form that no longer
+ * had a department-reference box on it.
+ *
+ * Normalising null to undefined here means removing a field from the UI can
+ * never again resurrect it as a validation error.
+ */
+export function indentInputFromForm(formData: FormData, lines: unknown) {
+  const field = (name: string): string | undefined => {
+    const value = formData.get(name);
+    return typeof value === 'string' ? value : undefined;
+  };
+
+  return {
+    indentDate: field('indentDate'),
+    departmentId: field('departmentId'),
+    requesterName: field('requesterName'),
+    requesterDesignation: field('requesterDesignation'),
+    purpose: field('purpose'),
+    expectedDate: field('expectedDate'),
+    priority: field('priority') ?? 'LEVEL_3',
+    lines,
+  };
+}
 
 export const transitionSchema = z.object({
   indentId: uuid,

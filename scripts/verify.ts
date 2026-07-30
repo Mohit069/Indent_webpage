@@ -5,7 +5,12 @@ import { createHash } from 'node:crypto';
 import { findTransition, TRANSITIONS } from '../src/lib/workflow';
 import { checkActionPassword } from '../src/lib/action-password';
 import { shouldCloseAfter } from '../src/lib/action-state';
-import { indentLineSchema, indentSchema, transitionSchema } from '../src/lib/validation';
+import {
+  indentInputFromForm,
+  indentLineSchema,
+  indentSchema,
+  transitionSchema,
+} from '../src/lib/validation';
 import { describeMissing, labelForPath } from '../src/lib/form-summary';
 
 /*
@@ -539,6 +544,77 @@ async function main() {
   check('a cleared date becomes today rather than an error',
     /^\d{4}-\d{2}-\d{2}$/.test(indent({ indentDate: '' }).data?.indentDate ?? ''));
   check('a nonsense date is still refused', !indent({ indentDate: '30-07-2026' }).success);
+
+  // -------------------------------------------------------------------------
+  console.log('\nThe form as the browser actually posts it');
+  // -------------------------------------------------------------------------
+  /*
+   * Regression guard for a bug that reached the user.
+   *
+   * Every check above builds a plain object by hand and hands it to the schema,
+   * so all of them passed while the real form was refusing to submit. What the
+   * browser sends is a FormData, and `formData.get()` answers null — not
+   * undefined — for a box that is no longer on the page. Zod's `.optional()`
+   * takes undefined and rejects null, so the removed department-reference field
+   * came back as "deptRef is required" on a form with no such field.
+   *
+   * These build the FormData exactly as the form renders it.
+   */
+  function browserForm(over: Record<string, string> = {}): FormData {
+    const fd = new FormData();
+    const fields: Record<string, string> = {
+      indentDate: '2026-07-30',
+      departmentId: '00000000-0000-4000-8000-000000000000',
+      requesterName: 'Ramesh Kumar',
+      requesterDesignation: 'Shift Technician',
+      priority: 'LEVEL_2',
+      expectedDate: '',
+      purpose: '',
+      ...over,
+    };
+    for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+    return fd;
+  }
+
+  // The action JSON.parses the hidden "lines" field before mapping, so this is
+  // the array shape the mapper actually receives.
+  const oneLine = JSON.parse(
+    JSON.stringify([{ customDescription: 'V-belt B-52', uomCode: 'NOS', requiredQty: '4' }]),
+  );
+
+  const posted = indentSchema.safeParse(indentInputFromForm(browserForm(), oneLine));
+  check('a filled-in form submits', posted.success,
+    posted.success ? '' : JSON.stringify(posted.error.issues));
+
+  check('and asks for nothing that is not on the form',
+    posted.success ||
+      !posted.error.issues.some((i) => i.path.join('.') === 'deptRef'));
+
+  // The specific shape of the bug: a field the form does not render at all.
+  const fd = browserForm();
+  check('a field absent from the form is absent from the payload',
+    fd.get('deptRef') === null);
+
+  const withoutOptionals = browserForm();
+  withoutOptionals.delete('expectedDate');
+  withoutOptionals.delete('purpose');
+  withoutOptionals.delete('requesterDesignation');
+  withoutOptionals.delete('indentDate');
+  const sparse = indentSchema.safeParse(
+    indentInputFromForm(withoutOptionals, oneLine),
+  );
+  check('optional boxes may be missing entirely, not merely empty', sparse.success,
+    sparse.success ? '' : JSON.stringify(sparse.error.issues));
+  check('a missing date still becomes today',
+    /^\d{4}-\d{2}-\d{2}$/.test(sparse.success ? sparse.data.indentDate : ''));
+
+  const noDept = indentSchema.safeParse(
+    indentInputFromForm(browserForm({ departmentId: '' }), oneLine),
+  );
+  check('a genuinely required field is still refused', !noDept.success);
+  check('and it is named as the department, not as something else',
+    !noDept.success &&
+      noDept.error.issues.some((i) => i.path.join('.') === 'departmentId'));
 
   // -------------------------------------------------------------------------
   console.log('\nWhat is still missing');

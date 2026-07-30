@@ -179,8 +179,6 @@ export const indents = pgTable(
 
     purpose: text('purpose'),
     expectedDate: date('expected_date'),
-    /** The department's own reference, if it keeps one. */
-    deptRef: text('dept_ref'),
 
     status: indentStatusEnum('status').notNull().default('DRAFT'),
     /*

@@ -15,6 +15,13 @@
       "when": 1785392973716,
       "tag": "0001_priority_levels",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785403479935,
+      "tag": "0002_drop_dept_ref",
+      "breakpoints": true
     }
   ]
 }
