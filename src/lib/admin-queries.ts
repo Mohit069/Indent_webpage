@@ -4,6 +4,7 @@ import { db } from '@/db';
 import {
   activityLog,
   departments,
+  indentEvents,
   indentLines,
   indents,
   people,
@@ -60,12 +61,25 @@ export async function dashboardStats(): Promise<DashboardStats> {
      * indents.approvedAt. An indent carries only its latest state, so counting
      * rejections off the indents table would miss one that was rejected this
      * morning and re-raised this afternoon.
+     *
+     * Built from the schema objects, not a raw `sql` fragment. The first
+     * version wrote `sql\`created_at >= ${today}\`` with `today` as a JS Date,
+     * and a Date interpolated into a raw fragment reaches the driver with no
+     * column to infer its type from — postgres.js then tried to take the byte
+     * length of a Date and threw while writing the query to the socket. Going
+     * through `gte(indentEvents.createdAt, …)` lets the column's own mapping
+     * convert it, which is the whole point of having typed columns.
      */
     db
-      .select({ stage: sql<string>`stage`, n: count() })
-      .from(sql`indent_events`)
-      .where(sql`created_at >= ${today} and stage in ('FINAL_APPROVAL', 'REJECT')`)
-      .groupBy(sql`stage`),
+      .select({ stage: indentEvents.stage, n: count() })
+      .from(indentEvents)
+      .where(
+        and(
+          gte(indentEvents.createdAt, today),
+          inArray(indentEvents.stage, ['FINAL_APPROVAL', 'REJECT']),
+        ),
+      )
+      .groupBy(indentEvents.stage),
 
     db
       .select({

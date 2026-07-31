@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "serve": "tsx scripts/serve-local.ts",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -19,6 +20,8 @@
     "db:demo": "tsx scripts/demo-data.ts",
     "verify": "tsx scripts/verify.ts",
     "check": "tsx scripts/dev-check.ts",
+    "check:pages": "tsx scripts/page-check.ts",
+    "check:auth": "tsx scripts/auth-check.ts",
     "local-db": "tsx scripts/local-db.ts"
   },
   "dependencies": {

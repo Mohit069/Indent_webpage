@@ -57,6 +57,43 @@ export async function signIn(
 
   const { email, password, returnTo } = parsed.data;
 
+  /*
+   * Everything that can fail happens inside the try; the redirect happens after
+   * it.
+   *
+   * `redirect()` works by throwing, so it must not be inside a catch that would
+   * swallow it — and an ordinary failure must not escape uncaught either. When
+   * it did, the browser got a blank re-rendered form with no message at all,
+   * which is indistinguishable from "nothing happened" and gave the person
+   * signing in nothing to act on.
+   */
+  let destination: string | null;
+
+  try {
+    destination = await attemptSignIn(email, password, returnTo);
+  } catch (err) {
+    console.error('[signIn] failed for', email, err);
+    return {
+      error: 'Something went wrong signing in. The problem has been logged.',
+    };
+  }
+
+  if (destination === null) return { error: 'Wrong email or password.' };
+
+  redirect(destination);
+}
+
+/**
+ * Do the work; return where to send them, or null if the credentials are wrong.
+ *
+ * Separated from the action so `redirect` — which works by throwing — stays
+ * outside the try/catch that reports real failures.
+ */
+async function attemptSignIn(
+  email: string,
+  password: string,
+  returnTo: string | undefined,
+): Promise<string | null> {
   const [person] = await db
     .select()
     .from(people)
@@ -86,7 +123,9 @@ export async function signIn(
       summary: `Failed sign-in attempt for ${email}`,
     });
 
-    return { error: 'Wrong email or password.' };
+    // Null rather than a thrown error: wrong credentials are an expected
+    // outcome, not a fault, and the caller reports them differently.
+    return null;
   }
 
   await createSession(person!.id);
@@ -107,9 +146,9 @@ export async function signIn(
    * A password an admin set is a password two people know. It has to be
    * replaced before the account is used for anything.
    */
-  if (person!.mustChangePassword) redirect('/change-password');
+  if (person!.mustChangePassword) return '/change-password';
 
-  redirect(returnTo ?? homeFor(person!.role));
+  return returnTo ?? homeFor(person!.role);
 }
 
 /*
