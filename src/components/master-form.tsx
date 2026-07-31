@@ -3,16 +3,29 @@
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { CheckCircle2, Loader2, Plus } from 'lucide-react';
-import type { AdminActionState } from '@/actions/admin';
 import { Field, Input, Select, buttonClass } from '@/components/ui';
 
 /*
  * One form for the simple masters.
  *
- * People, departments, units and categories differ only in their fields, so
- * they share a component rather than four near-identical files that drift
- * apart.
+ * Departments, units, categories and users differ only in their fields, so they
+ * share a component rather than four near-identical files that drift apart.
  */
+
+/**
+ * What this form can render a result from.
+ *
+ * Wider than any one action's return type, because two families of action feed
+ * it — the master-data ones, which report a `success` message, and the newer
+ * ones built on ActionResult, which state `ok`. Every field is optional, so
+ * both satisfy it without either having to change shape.
+ */
+export interface MasterFormState {
+  error?: string;
+  success?: string;
+  fieldErrors?: Record<string, string>;
+  ok?: true;
+}
 
 export interface MasterField {
   name: string;
@@ -20,7 +33,7 @@ export interface MasterField {
   placeholder?: string;
   hint?: string;
   required?: boolean;
-  type?: 'text' | 'email' | 'select' | 'checkbox';
+  type?: 'text' | 'email' | 'password' | 'select' | 'checkbox';
   options?: { value: string; label: string }[];
 }
 
@@ -49,12 +62,12 @@ export function MasterForm({
   submitLabel,
   columns = 3,
 }: {
-  action: (prev: AdminActionState, formData: FormData) => Promise<AdminActionState>;
+  action: (prev: MasterFormState, formData: FormData) => Promise<MasterFormState>;
   fields: MasterField[];
   submitLabel: string;
   columns?: 2 | 3;
 }) {
-  const [state, formAction] = useActionState<AdminActionState, FormData>(action, {});
+  const [state, formAction] = useActionState<MasterFormState, FormData>(action, {});
 
   return (
     <form action={formAction} className="flex flex-col gap-5">
@@ -105,7 +118,12 @@ export function MasterForm({
               ) : (
                 <Input
                   name={f.name}
-                  type={f.type === 'email' ? 'email' : 'text'}
+                  type={
+                    f.type === 'email' ? 'email' : f.type === 'password' ? 'password' : 'text'
+                  }
+                  // So the browser offers to generate one and does not file it
+                  // under the admin's own saved credentials.
+                  autoComplete={f.type === 'password' ? 'new-password' : undefined}
                   placeholder={f.placeholder}
                 />
               )}

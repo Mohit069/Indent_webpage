@@ -228,11 +228,88 @@ export const transitionSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Accounts and sign-in
+// ---------------------------------------------------------------------------
+
+const emailAddress = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email('That does not look like an email address')
+  .max(200);
+
+/**
+ * A new password.
+ *
+ * Twelve characters and nothing else — no required symbol, no forced digit.
+ * Composition rules push people towards Passw0rd! and towards writing it on the
+ * monitor; length is what actually costs an attacker anything. The only other
+ * rule is that it not be one of the handful of passwords everybody tries first.
+ */
+const BANNED_PASSWORDS = new Set([
+  'password', 'password123', '123456789012', 'qwertyuiop12',
+  'artizia12345', 'administrator', 'letmein12345',
+]);
+
+const newPassword = z
+  .string()
+  .min(12, 'Use at least 12 characters')
+  .max(200, 'That is too long')
+  .refine(
+    (v) => !BANNED_PASSWORDS.has(v.toLowerCase()),
+    'That password is too easy to guess — choose another',
+  );
+
+export const loginSchema = z.object({
+  email: emailAddress,
+  /*
+   * Only that something was typed. The stored password predates whatever rule
+   * is current, and refusing to *check* a short one would lock out an account
+   * whose password was set under an older policy.
+   */
+  password: z.string().min(1, 'Enter your password').max(200),
+  returnTo: z
+    .string()
+    .max(300)
+    .regex(/^\/(?![/\\])[A-Za-z0-9\-._~/]*$/, 'Invalid return path')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+});
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().max(200).optional().or(z.literal('').transform(() => undefined)),
+    password: newPassword,
+    confirmPassword: z.string(),
+  })
+  .refine((v) => v.password === v.confirmPassword, {
+    message: 'The two passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+/** An admin setting someone else's password. No current password — the admin
+ *  does not know it, which is the entire reason they are resetting it. */
+export const resetPasswordSchema = z
+  .object({
+    personId: uuid,
+    password: newPassword,
+    confirmPassword: z.string(),
+  })
+  .refine((v) => v.password === v.confirmPassword, {
+    message: 'The two passwords do not match',
+    path: ['confirmPassword'],
+  });
+
+// ---------------------------------------------------------------------------
 // Masters
 // ---------------------------------------------------------------------------
 
-/** A person in the "acting as" picker. Not an account — there is nothing to
- *  sign into, so there is no password and no role. */
+/**
+ * A user account.
+ *
+ * Was a name for the "acting as" picker with no password and no role. It is now
+ * a login: email identifies the account, role decides what it may do.
+ */
 export const personSchema = z.object({
   name: z.string().trim().min(2, 'Enter a name').max(120),
   designation: z.string().trim().min(2, 'Enter a designation').max(120),
@@ -246,15 +323,18 @@ export const personSchema = z.object({
   /*
    * Lower-cased, because addresses are compared case-insensitively in practice
    * and the column is unique — Suresh@ and suresh@ must not become two people.
+   *
+   * Required now: it is the login identity, and an account with no address is
+   * one nobody can ever sign into.
    */
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .email('That does not look like an email address')
-    .max(200)
-    .optional()
-    .or(z.literal('').transform(() => undefined)),
+  email: emailAddress,
+  role: z.enum(['SUPER_ADMIN', 'HOD', 'PURCHASE']),
+  /** An HOD's own department. Absent for Super Admin and Purchase, who are not
+   *  scoped to one. */
+  departmentId: uuid.optional().or(z.literal('').transform(() => undefined)),
+  /** Optional at creation: leaving it blank creates the account without a
+   *  password, and it cannot be signed into until one is set. */
+  password: newPassword.optional().or(z.literal('').transform(() => undefined)),
   /** Checkboxes arrive as "on" when ticked and are absent when not. */
   canApprove: z.coerce.boolean().default(false),
   canReject: z.coerce.boolean().default(false),

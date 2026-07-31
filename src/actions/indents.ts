@@ -14,15 +14,18 @@ import {
 } from '@/db/schema';
 import type { IndentStatus } from '@/db/schema';
 import { indentInputFromForm, indentSchema, transitionSchema } from '@/lib/validation';
-import { actorSnapshot, getActor, setActorCookie } from '@/lib/actor';
+import { actorSnapshot, getActor } from '@/lib/actor';
 import { financialYear, formatIndentNo, hashLines } from '@/lib/indent-no';
 import {
   findTransition,
   isEditable,
-  requiredRole,
+  requiredPermission,
   type TransitionRule,
 } from '@/lib/workflow';
+import { can } from '@/lib/rbac';
 import { checkActionPassword } from '@/lib/action-password';
+import { logActivity } from '@/lib/activity';
+import { notifyDecision, notifySubmitted } from '@/lib/notify';
 
 /*
  * Actions.
@@ -268,11 +271,12 @@ async function commitTransition({
   return { issuedNumber };
 }
 
-/** Switch whose name goes on the next action. A preference, not a login. */
-export async function setActingAs(personId: string): Promise<void> {
-  await setActorCookie(personId);
-  revalidatePath('/', 'layout');
-}
+/*
+ * `setActingAs` used to live here — it switched whose name went on the next
+ * action by writing a cookie. Sign-in replaced it. Letting anyone choose to act
+ * as Saurabh would defeat the point of restricting approval to him, so the
+ * picker is gone rather than hidden.
+ */
 
 /**
  * Write the indent and send it for approval, in one step.
@@ -438,6 +442,25 @@ export async function saveIndent(
 
   const { issuedNumber } = await commitTransition({ indent: saved, rule, actor });
 
+  const number = saved.indentNo ?? issuedNumber ?? '';
+
+  await logActivity({
+    actorId: actor.id,
+    actorName: actor.name,
+    action: 'indent.submit',
+    entityType: 'indent',
+    entityId: targetId,
+    summary: `${actor.name} raised ${number} for ${data.departmentName}`,
+  });
+
+  // Puts it in front of whoever can approve, and drives the sidebar badge.
+  await notifySubmitted({
+    indentId: targetId,
+    indentNo: number,
+    requesterName: data.requesterName,
+    departmentName: data.departmentName,
+  });
+
   /*
    * Drop the cached list before leaving, so the indent that was just raised is
    * on the page the redirect lands on rather than one refresh later. The list
@@ -446,6 +469,7 @@ export async function saveIndent(
    */
   revalidatePath('/indents');
   revalidatePath(`/indents/${targetId}`);
+  revalidatePath('/admin', 'layout');
 
   /*
    * To the list, not to the indent itself.
@@ -454,7 +478,6 @@ export async function saveIndent(
    * sitting in the queue with the others, not to stare at the thing you just
    * typed. The number travels in the URL so the toast can name it.
    */
-  const number = saved.indentNo ?? issuedNumber ?? '';
   redirect(`/indents?decided=submit&no=${encodeURIComponent(number)}`);
 }
 
@@ -509,32 +532,26 @@ export async function transitionIndent(
   }
 
   /*
-   * The role check, on the server, before anything is written.
+   * The permission check, on the server, before anything is written.
    *
    * Hiding the buttons is a courtesy to the person looking at the screen; it is
-   * not a control, because anyone can post to a server action directly. This is
-   * where the answer is actually decided.
+   * not a control, because a server action is an HTTP endpoint and anyone can
+   * post to it directly. This is where the answer is actually decided.
    *
-   * Its reach is limited and worth stating: the acting-as name is a cookie the
-   * user chooses, so somebody can select a person who holds the flag and act as
-   * them. This stops the wrong person deciding by accident and keeps the audit
-   * trail honest. It becomes a real restraint when a sign-in verifies who is
-   * behind the name.
+   * Unlike the version this replaced, it is now a real restraint: the person is
+   * whoever holds the session cookie, and that cannot be set by choosing a name
+   * from a list.
    */
   const deciding = await getActor();
-  const needed = requiredRole(action);
+  const needed = requiredPermission(action);
 
   if (needed) {
-    if (!deciding) {
-      return {
-        error:
-          'This computer has not been set to anyone yet, so there is nobody to record the decision against.',
-      };
-    }
-    if (!deciding[needed]) {
+    if (!deciding) return { error: 'You are not signed in.' };
+
+    if (!can(deciding, needed)) {
       const verb = action === 'approve' ? 'approve' : 'reject';
       return {
-        error: `${deciding.name} is not set up to ${verb} indents. Someone with that permission has to do it, or it can be granted under Settings → People.`,
+        error: `${deciding.name} is not allowed to ${verb} indents. Someone with that permission has to do it, or it can be granted under Users.`,
       };
     }
   }
@@ -552,8 +569,38 @@ export async function transitionIndent(
 
   const { issuedNumber } = await commitTransition({ indent, rule, actor });
 
+  const number = indent.indentNo ?? issuedNumber ?? 'an indent';
+
+  await logActivity({
+    actorId: actor.id,
+    actorName: actor.name,
+    action:
+      action === 'approve'
+        ? 'indent.approve'
+        : action === 'reject'
+          ? 'indent.reject'
+          : 'indent.submit',
+    entityType: 'indent',
+    entityId: indent.id,
+    summary: `${actor.name} ${
+      action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'submitted'
+    } ${number}`,
+  });
+
+  if (action === 'approve' || action === 'reject') {
+    await notifyDecision({
+      indentId: indent.id,
+      indentNo: number,
+      raisedById: indent.raisedById,
+      approved: action === 'approve',
+      deciderName: actor.name,
+    });
+  }
+
   revalidatePath('/indents');
   revalidatePath(`/indents/${indentId}`);
+  // The admin sidebar's pending badge and its lists read the same rows.
+  revalidatePath('/admin', 'layout');
 
   /*
    * Say what happened, on the page they were already on.

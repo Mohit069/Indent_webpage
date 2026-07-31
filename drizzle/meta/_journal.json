@@ -36,6 +36,13 @@
       "when": 1785410229735,
       "tag": "0004_drop_orphan_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785497000000,
+      "tag": "0005_accounts_and_rbac",
+      "breakpoints": true
     }
   ]
 }

@@ -20,15 +20,17 @@ import { relations, sql } from 'drizzle-orm';
  *
  * Mirrors the paper form (Marudhar Quartz, serial book at 952).
  *
- * THERE IS NO AUTHENTICATION. This is an internal tool rotating among two or
- * three people who all do every job, so there are no accounts, no passwords, no
- * sessions and no roles — anyone who can reach the page can raise an indent and
- * move it along.
+ * Identity is real: `people` are accounts with a password and a role, and
+ * `sessions` is what a signed-in browser holds. This replaced an earlier design
+ * with no sign-in at all, where the acting-as name was a cookie the user picked.
+ * That was honest for two or three people who all did every job; it stopped
+ * being honest the moment the requirement became ten departments where only one
+ * named person may approve. A permission that anyone can grant themselves by
+ * editing a cookie is documentation, not a control.
  *
- * What survives from the paper form is attribution: a short list of `people`
- * and a "who is using this" picker, so the HOD and approval boxes on the
- * printed indent still carry a name rather than being blank. That is a label,
- * not a credential — nothing verifies it.
+ * What survives from the paper form is attribution: every event snapshots the
+ * actor's name and designation, so the printed indent's signature boxes carry a
+ * name rather than being blank — and now that name has been authenticated.
  */
 
 // ---------------------------------------------------------------------------
@@ -64,6 +66,23 @@ export const priorityEnum = pgEnum('priority', [
   'LEVEL_3',
 ]);
 
+/*
+ * What a person is, which decides what they may do.
+ *
+ * Three roles, because the business has three jobs. Permissions are derived
+ * from this in rbac.ts rather than stored per-person, so adding a fourth role
+ * is one entry in one table instead of a migration over every account.
+ *
+ * SUPER_ADMIN is not hardcoded to one email. Saurabh is seeded as the first
+ * one, but the role is a value like any other and a second can be appointed
+ * from the Users screen without touching code.
+ */
+export const userRoleEnum = pgEnum('user_role', [
+  'SUPER_ADMIN',
+  'HOD',
+  'PURCHASE',
+]);
+
 /** What kind of act an event records. */
 export const eventStageEnum = pgEnum('event_stage', [
   'CREATE',
@@ -90,50 +109,143 @@ export const departments = pgTable('departments', {
 });
 
 /**
- * The people who use this.
+ * The people who use this — user accounts.
  *
- * Not user accounts — there is nothing to sign into. This is the list the
- * "acting as" picker offers, so every action can be attributed to a name and
- * the printed form matches the paper one. Two or three rows is the expected
- * size.
+ * Never deleted, only deactivated: a person's name is on the history of every
+ * indent they touched, and a foreign key from `indent_events` has to keep
+ * resolving. `isActive: false` is what "removed" means here, and it blocks
+ * sign-in immediately.
  */
-export const people = pgTable('people', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull(),
-  designation: text('designation').notNull(),
-  /** Optional, purely for contact — never used to identify anyone. */
-  phone: text('phone'),
+export const people = pgTable(
+  'people',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    designation: text('designation').notNull(),
+    /** Optional, purely for contact. */
+    phone: text('phone'),
 
-  /*
-   * The person's email address.
-   *
-   * Recorded so each designation has a real person behind it, and so this can
-   * become the identity a sign-in checks against later. Nothing authenticates
-   * against it today — see the note on the role flags below.
-   *
-   * Unique, but nullable: Postgres allows any number of NULLs under a unique
-   * constraint, so people without one do not collide.
-   */
-  email: text('email').unique(),
+    /*
+     * The login identity.
+     *
+     * Unique but nullable, and the two facts are related: Postgres allows any
+     * number of NULLs under a unique constraint, which is what lets the three
+     * placeholder people who predate accounts stay in the table as historical
+     * actors. No email means no way to sign in, which is exactly right for
+     * them — they are names on old events, not users.
+     *
+     * Stored lower-cased; see `normaliseEmail` in auth.ts. Sign-in would
+     * otherwise fail for anyone whose phone capitalised the first letter.
+     */
+    email: text('email').unique(),
 
-  /*
-   * Who may decide an indent.
-   *
-   * Enforced on the server before any write, and used to hide the buttons from
-   * people who do not have the flag. But be clear about what that is worth
-   * while there is no sign-in: the acting-as name is a cookie the user picks,
-   * so anyone can select a person who holds the flag and act as them. These
-   * stop the wrong person deciding by accident, and make the audit trail mean
-   * something. They do not stop anyone who intends to get round them.
-   *
-   * They become a real control the moment a login verifies `email`.
-   */
-  canApprove: boolean('can_approve').notNull().default(false),
-  canReject: boolean('can_reject').notNull().default(false),
+    /*
+     * scrypt, salted per person. Null means the account cannot be signed into
+     * yet — either it was just created and is waiting for its first password,
+     * or an admin reset it. Never a plaintext or reversible value.
+     */
+    passwordHash: text('password_hash'),
 
-  isActive: boolean('is_active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+    /** Set when an admin resets a password, cleared when the user picks a new
+     *  one. The login flow forces the change before anything else is reachable. */
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
+
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+
+    role: userRoleEnum('role').notNull().default('HOD'),
+
+    /*
+     * The department this person heads, for an HOD.
+     *
+     * Nullable because a Super Admin belongs to all of them and the Purchase
+     * team belongs to none. It is what scopes an HOD's list to their own
+     * indents rather than the whole company's.
+     */
+    departmentId: uuid('department_id').references(() => departments.id),
+
+    /*
+     * Extra grants on top of the role.
+     *
+     * The role decides the baseline — only SUPER_ADMIN approves — and these
+     * two allow one person to be handed approval rights without making them a
+     * full Super Admin. They are additive only: rbac.ts unions them with the
+     * role's permissions and never subtracts, so clearing a flag can't strip a
+     * Super Admin of a power their role grants.
+     */
+    canApprove: boolean('can_approve').notNull().default(false),
+    canReject: boolean('can_reject').notNull().default(false),
+
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('people_department_idx').on(t.departmentId), index('people_role_idx').on(t.role)],
+);
+
+/**
+ * A signed-in browser.
+ *
+ * Server-side rather than a self-contained token, so that disabling an account
+ * or resetting a password can end its sessions immediately. A JWT cannot be
+ * withdrawn before it expires; a row can be deleted.
+ *
+ * `tokenHash` and not the token: the cookie holds a random 32-byte secret, and
+ * only its SHA-256 is stored. Anyone who reads this table — a backup, a log, a
+ * support query — still cannot sign in as anybody.
+ */
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('sessions_person_idx').on(t.personId), index('sessions_expires_idx').on(t.expiresAt)],
+);
+
+/**
+ * Everything anybody did, across the whole application.
+ *
+ * Distinct from `indent_events`, which is the workflow history of one indent
+ * and drives the printed signature boxes. This is the wider record: sign-ins,
+ * user creation, role changes, department edits. An indent transition writes to
+ * both, because the two answer different questions — "what happened to this
+ * indent" and "what did this person do".
+ *
+ * Append-only. Nothing in the application updates or deletes a row here.
+ */
+export const activityLog = pgTable(
+  'activity_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    actorId: uuid('actor_id').references(() => people.id),
+    /** Snapshot, so the log still reads correctly after a rename. */
+    actorNameSnapshot: text('actor_name_snapshot').notNull(),
+
+    /** Machine-readable, dotted: `indent.approve`, `user.create`, `auth.login`. */
+    action: text('action').notNull(),
+    /** What kind of thing was acted on: `indent`, `person`, `department`, `auth`. */
+    entityType: text('entity_type').notNull(),
+    entityId: uuid('entity_id'),
+
+    /** One line, already written for a human to read in the log table. */
+    summary: text('summary').notNull(),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('activity_log_created_idx').on(t.createdAt),
+    index('activity_log_actor_idx').on(t.actorId),
+    index('activity_log_entity_idx').on(t.entityType, t.entityId),
+  ],
+);
+
+// `notifications` is defined below the indents table — it carries a foreign key
+// to it, and declaring it here would depend on that reference being resolved
+// lazily rather than on the order the module evaluates in.
 
 export const uoms = pgTable('uoms', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -309,6 +421,38 @@ export const indentEvents = pgTable(
 );
 
 /**
+ * In-app notifications.
+ *
+ * Deliberately not email: the requirement is a badge on the sidebar showing how
+ * many indents are waiting, and a note to the requester when theirs is decided.
+ * Both are reads against this table. Sending mail is a separate concern with
+ * separate failure modes, and nothing here depends on it.
+ */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    personId: uuid('person_id')
+      .notNull()
+      .references(() => people.id, { onDelete: 'cascade' }),
+
+    /** `indent.submitted`, `indent.approved`, `indent.rejected`. */
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    body: text('body'),
+
+    indentId: uuid('indent_id').references(() => indents.id, { onDelete: 'cascade' }),
+
+    readAt: timestamp('read_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('notifications_person_unread_idx').on(t.personId, t.readAt),
+    index('notifications_created_idx').on(t.createdAt),
+  ],
+);
+
+/**
  * Serial number issuance, one row per financial year.
  *
  * Incremented inside the submit transaction with SELECT ... FOR UPDATE, so two
@@ -332,9 +476,28 @@ export const departmentsRelations = relations(departments, ({ many }) => ({
   indents: many(indents),
 }));
 
-export const peopleRelations = relations(people, ({ many }) => ({
+export const peopleRelations = relations(people, ({ one, many }) => ({
   indentsRaised: many(indents),
   events: many(indentEvents),
+  sessions: many(sessions),
+  notifications: many(notifications),
+  department: one(departments, {
+    fields: [people.departmentId],
+    references: [departments.id],
+  }),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  person: one(people, { fields: [sessions.personId], references: [people.id] }),
+}));
+
+export const activityLogRelations = relations(activityLog, ({ one }) => ({
+  actor: one(people, { fields: [activityLog.actorId], references: [people.id] }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  person: one(people, { fields: [notifications.personId], references: [people.id] }),
+  indent: one(indents, { fields: [notifications.indentId], references: [indents.id] }),
 }));
 
 export const itemsRelations = relations(items, ({ one, many }) => ({
@@ -372,6 +535,9 @@ export const indentEventsRelations = relations(indentEvents, ({ one }) => ({
 // ---------------------------------------------------------------------------
 
 export type Person = typeof people.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
+export type ActivityLogEntry = typeof activityLog.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
 export type Department = typeof departments.$inferSelect;
 export type Uom = typeof uoms.$inferSelect;
 export type Item = typeof items.$inferSelect;
@@ -380,6 +546,7 @@ export type Indent = typeof indents.$inferSelect;
 export type IndentLine = typeof indentLines.$inferSelect;
 export type IndentEvent = typeof indentEvents.$inferSelect;
 
+export type UserRole = (typeof userRoleEnum.enumValues)[number];
 export type IndentStatus = (typeof indentStatusEnum.enumValues)[number];
 export type Priority = (typeof priorityEnum.enumValues)[number];
 export type EventStage = (typeof eventStageEnum.enumValues)[number];

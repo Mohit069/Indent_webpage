@@ -5,30 +5,58 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   ClipboardList,
+  LayoutDashboard,
   Settings,
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
-import type { Person } from '@/db/schema';
-import { ActingAs } from '@/components/acting-as';
+import { can, type Permission, type Principal } from '@/lib/rbac';
+import { UserBadge, type BadgeUser } from '@/components/user-badge';
 import { cn } from '@/components/ui';
 
 /*
  * The shell: sidebar, top bar on phones, bottom bar on phones.
  *
- * Every route is open — no sign-in, no roles, nothing hidden. The only identity
- * in the app is the "acting as" name, which decides whose name is stamped on
- * the next action and printed in the signature box.
+ * This is the requester's view — where an HOD raises and tracks indents. The
+ * Super Admin has a separate shell under /admin, because the brief is explicit
+ * that Saurabh should not land in the HOD interface.
+ *
+ * Navigation is filtered by permission, but filtering it is a courtesy: it
+ * keeps people from walking into a page that will refuse them. It is not the
+ * control. Every route behind these links checks for itself, because a link
+ * that is not rendered is still a URL anyone can type.
  *
  * `children` arrives already rendered on the server. This component is a client
  * component only because the sidebar collapses and the active link has to be
  * derived from the current path; the pages inside it stay server components.
  */
 
-const NAV = [
+interface NavItem {
+  href: string;
+  label: string;
+  short: string;
+  icon: typeof ClipboardList;
+  /** Omitted means everyone signed in may see it. */
+  permission?: Permission;
+}
+
+const NAV: NavItem[] = [
   { href: '/indents', label: 'Indents', short: 'Indents', icon: ClipboardList },
-  { href: '/admin', label: 'Settings', short: 'Settings', icon: Settings },
+  {
+    href: '/admin',
+    label: 'Admin',
+    short: 'Admin',
+    icon: LayoutDashboard,
+    permission: 'user:manage',
+  },
+  {
+    href: '/admin/masters/items',
+    label: 'Master data',
+    short: 'Masters',
+    icon: Settings,
+    permission: 'masters:manage',
+  },
 ];
 
 /** The company monogram. A tile, not a wordmark — it survives being 32px wide. */
@@ -47,13 +75,15 @@ function Logo({ className }: { className?: string }) {
 }
 
 export function AppShell({
-  people,
-  actor,
+  user,
+  principal,
   defaultCollapsed,
   children,
 }: {
-  people: Person[];
-  actor: Person | null;
+  user: BadgeUser;
+  /** Only the three fields a permission check reads — never the whole row,
+   *  which carries a password hash across to the client. */
+  principal: Principal;
   defaultCollapsed: boolean;
   children: React.ReactNode;
 }) {
@@ -64,6 +94,8 @@ export function AppShell({
    */
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const pathname = usePathname();
+
+  const nav = NAV.filter((item) => !item.permission || can(principal, item.permission));
 
   function toggle() {
     const next = !collapsed;
@@ -119,7 +151,7 @@ export function AppShell({
         </div>
 
         <nav className="flex flex-1 flex-col gap-1 p-3">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = isActive(item.href);
             return (
               <Link
@@ -161,15 +193,7 @@ export function AppShell({
             </div>
           ) : (
             <>
-              <div className="rounded-xl border border-line bg-sunken p-3">
-                <p className="eyebrow">Acting as</p>
-                <div className="mt-2">
-                  <ActingAs people={people} current={actor} />
-                </div>
-                <p className="mt-2.5 text-[11px] leading-relaxed text-muted">
-                  No sign-in. This name is stamped on whatever you do next.
-                </p>
-              </div>
+              <UserBadge user={user} />
               <button
                 type="button"
                 onClick={toggle}
@@ -192,7 +216,7 @@ export function AppShell({
             <Logo className="h-8 w-8 text-xs" />
             <p className="truncate text-sm font-semibold text-ink">Purchase Indent</p>
           </div>
-          <ActingAs people={people} current={actor} />
+          <UserBadge user={user} compact />
         </header>
 
         <main className="min-w-0 flex-1 px-4 py-6 pb-28 lg:px-8 lg:py-8 lg:pb-10">
@@ -202,7 +226,7 @@ export function AppShell({
         {/* Phones: thumb-reachable navigation. Indents get raised standing on a
             plant floor, not at a desk. */}
         <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = isActive(item.href);
             return (
               <Link

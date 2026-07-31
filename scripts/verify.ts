@@ -5,9 +5,11 @@ import { createHash } from 'node:crypto';
 import {
   allowedActions,
   findTransition,
-  requiredRole,
+  requiredPermission,
   TRANSITIONS,
 } from '../src/lib/workflow';
+import { can, permissionsFor, type Principal } from '../src/lib/rbac';
+import { hashPassword, normaliseEmail, verifyPassword } from '../src/lib/password';
 import { checkActionPassword } from '../src/lib/action-password';
 import { shouldCloseAfter } from '../src/lib/action-state';
 import {
@@ -120,13 +122,39 @@ async function main() {
      delete from departments where id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';`,
   );
 
+  /*
+   * The exact set, by name, rather than a count.
+   *
+   * A count told you a table was missing but not which, said nothing about one
+   * arriving under the wrong name, and had to be edited on every migration that
+   * added anything — so it drifted into being a number somebody bumped rather
+   * than a claim anybody checked. Naming them means a new table is a deliberate
+   * line in this list.
+   */
+  const EXPECTED_TABLES = [
+    'activity_log',
+    'counters',
+    'departments',
+    'indent_events',
+    'indent_lines',
+    'indents',
+    'item_categories',
+    'items',
+    'notifications',
+    'people',
+    'sessions',
+    'uoms',
+  ];
+
   const tables = await db.query<{ table_name: string }>(
     `select table_name from information_schema.tables where table_schema='public' order by table_name`,
   );
+  const actualTables = tables.rows.map((r) => r.table_name);
+
   check(
-    'all 9 tables created',
-    tables.rows.length === 9,
-    `got ${tables.rows.length}: ${tables.rows.map((r) => r.table_name).join(', ')}`,
+    `every table the migrations describe exists (${EXPECTED_TABLES.length})`,
+    actualTables.join(',') === EXPECTED_TABLES.join(','),
+    `got ${actualTables.length}: ${actualTables.join(', ')}`,
   );
 
   // -------------------------------------------------------------------------
@@ -492,40 +520,102 @@ async function main() {
   console.log('\nWho may decide');
   // -------------------------------------------------------------------------
   /*
-   * Permissions per person, on top of the shared password.
+   * Who may decide, now that there is a sign-in.
    *
-   * Worth being precise about what these prove: that the rules filter
-   * correctly. They cannot prove the rules cannot be circumvented, because
-   * without a sign-in the acting-as name is the user's own choice.
+   * These used to come with a caveat: they proved the rules filtered correctly
+   * but not that the rules could not be walked around, because the acting-as
+   * name was the user's own choice. That caveat is gone. The person is whoever
+   * holds the session, and a session cannot be picked from a dropdown.
    */
-  const approver = { canApprove: true, canReject: false };
-  const rejecter = { canApprove: false, canReject: true };
-  const powerless = { canApprove: false, canReject: false };
-  const fullyTrusted = { canApprove: true, canReject: true };
+  const superAdmin: Principal = { role: 'SUPER_ADMIN', canApprove: false, canReject: false };
+  const hod: Principal = { role: 'HOD', canApprove: false, canReject: false };
+  const purchase: Principal = { role: 'PURCHASE', canApprove: false, canReject: false };
+  const deputy: Principal = { role: 'HOD', canApprove: true, canReject: true };
 
-  check('approving needs the approve permission', requiredRole('approve') === 'canApprove');
-  check('rejecting needs the reject permission', requiredRole('reject') === 'canReject');
-  check('submitting needs no permission at all', requiredRole('submit') === null);
+  check('approving needs the approve permission',
+    requiredPermission('approve') === 'indent:approve');
+  check('rejecting needs the reject permission',
+    requiredPermission('reject') === 'indent:reject');
+  check('submitting needs no decision permission', requiredPermission('submit') === null);
 
-  const names = (s: 'PENDING_APPROVAL' | 'DRAFT', p: typeof fullyTrusted | null) =>
+  // --- the policy itself ---------------------------------------------------
+  check('a Super Admin may approve', can(superAdmin, 'indent:approve'));
+  check('a Super Admin may reject', can(superAdmin, 'indent:reject'));
+  check('a Super Admin may manage users', can(superAdmin, 'user:manage'));
+
+  check('an HOD may NOT approve', !can(hod, 'indent:approve'));
+  check('an HOD may NOT reject', !can(hod, 'indent:reject'));
+  check('an HOD may NOT manage users', !can(hod, 'user:manage'));
+  check('an HOD may NOT see other departments', !can(hod, 'indent:view:all'));
+  check('an HOD may raise an indent', can(hod, 'indent:create'));
+
+  check('Purchase may NOT approve', !can(purchase, 'indent:approve'));
+  check('Purchase may see approved indents', can(purchase, 'indent:view:all'));
+  check('Purchase may NOT manage users', !can(purchase, 'user:manage'));
+
+  check('nobody signed out has any permission', permissionsFor(null).size === 0);
+
+  /*
+   * The per-person grants are additive only. Clearing a flag must not be able
+   * to strip a Super Admin of something their role confers — otherwise
+   * unticking a box on the Users screen would quietly disarm the only person
+   * who can approve anything.
+   */
+  check('an extra grant can deputise an HOD to approve', can(deputy, 'indent:approve'));
+  check('but does not make them an administrator', !can(deputy, 'user:manage'));
+  check('and a cleared flag cannot disarm a Super Admin',
+    can({ role: 'SUPER_ADMIN', canApprove: false, canReject: false }, 'indent:approve'));
+
+  // --- what that means for the buttons -------------------------------------
+  const names = (s: 'PENDING_APPROVAL' | 'DRAFT', p: Principal | null) =>
     allowedActions(s, p).map((a) => a.action).sort().join(',');
 
-  check('someone with both sees both decisions',
-    names('PENDING_APPROVAL', fullyTrusted) === 'approve,reject');
-  check('an approver sees only Approve',
-    names('PENDING_APPROVAL', approver) === 'approve');
-  check('a rejecter sees only Reject',
-    names('PENDING_APPROVAL', rejecter) === 'reject');
-  check('someone with neither sees no decision at all',
-    names('PENDING_APPROVAL', powerless) === '');
-  check('and nor does an unset computer',
-    names('PENDING_APPROVAL', null) === '');
+  check('a Super Admin sees both decisions',
+    names('PENDING_APPROVAL', superAdmin) === 'approve,reject');
+  check('an HOD sees no decision at all', names('PENDING_APPROVAL', hod) === '');
+  check('Purchase sees no decision either', names('PENDING_APPROVAL', purchase) === '');
+  check('a deputy sees both', names('PENDING_APPROVAL', deputy) === 'approve,reject');
+  check('and nobody signed out sees any', names('PENDING_APPROVAL', null) === '');
 
-  check('but anyone may still submit a draft', names('DRAFT', powerless) === 'submit');
-  check('including an unset computer', names('DRAFT', null) === 'submit');
+  check('an HOD may still submit their own draft', names('DRAFT', hod) === 'submit');
 
   check('permissions cannot conjure an action the state forbids',
-    names('DRAFT', fullyTrusted) === 'submit');
+    names('DRAFT', superAdmin) === 'submit');
+
+  // -------------------------------------------------------------------------
+  console.log('\nPasswords');
+  // -------------------------------------------------------------------------
+  /*
+   * The real implementation, imported — not a copy.
+   *
+   * This file once carried its own version of hashLines that had drifted from
+   * the production one, so the tamper checks were exercising an algorithm no
+   * indent was actually guarded by. Password hashing lives in password.ts
+   * rather than auth.ts precisely so this can import it: auth.ts is
+   * `server-only` and unimportable here.
+   */
+  const stored = await hashPassword('correct horse battery staple');
+
+  check('a correct password verifies', await verifyPassword('correct horse battery staple', stored));
+  check('a wrong password does not', !(await verifyPassword('Correct Horse Battery Staple', stored)));
+  check('an empty password does not', !(await verifyPassword('', stored)));
+  check('a null hash refuses rather than throwing', !(await verifyPassword('anything', null)));
+  check('a malformed hash refuses', !(await verifyPassword('anything', 'not-a-hash')));
+  check('a truncated hash refuses', !(await verifyPassword('anything', 'scrypt$aa$bb')));
+
+  check('the stored form is salted scrypt', /^scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}$/.test(stored));
+
+  /*
+   * The same password must not produce the same row twice. If it did, a stolen
+   * table would show at a glance which accounts share a password.
+   */
+  const again = await hashPassword('correct horse battery staple');
+  check('the same password hashes differently each time', again !== stored);
+  check('and the second one still verifies',
+    await verifyPassword('correct horse battery staple', again));
+
+  check('an email is lower-cased for storage',
+    normaliseEmail('  Saurabh@Artizia.co.in ') === 'saurabh@artizia.co.in');
 
   // -------------------------------------------------------------------------
   console.log('\nDialog closing');

@@ -1,4 +1,5 @@
 import type { IndentStatus, EventStage } from '@/db/schema';
+import { can, type Permission, type Principal } from '@/lib/rbac';
 
 /*
  * The workflow.
@@ -9,13 +10,14 @@ import type { IndentStatus, EventStage } from '@/db/schema';
  *   DRAFT --submit--> PENDING_APPROVAL --approve--> APPROVED
  *                                     \--reject---> REJECTED
  *
- * Approve and Reject are gated by a shared password. There are no accounts, so
- * the password is what separates "anyone who can open the page" from "anyone
- * who is allowed to authorise a purchase".
+ * Who may do each is decided by rbac.ts. Approve additionally asks for the
+ * shared password — which is now a second factor on the one action that commits
+ * money, rather than the only thing standing in front of it.
  *
  * The wider set of states (with-purchase, returned, procured, withdrawn) still
  * exists in the database enum so old rows keep resolving, but nothing in the UI
- * produces them any more.
+ * produces them any more. PO_CREATED, MATERIAL_RECEIVED and COMPLETED arrive
+ * with the purchase module.
  */
 
 export type WorkflowAction = 'submit' | 'approve' | 'reject';
@@ -79,30 +81,33 @@ export const TRANSITIONS: TransitionRule[] = [
   },
 ];
 
-/** The permission columns on a person that gate a decision. */
-export type PersonRole = 'canApprove' | 'canReject';
-
 /**
  * Which permission a person needs to perform an action, if any.
  *
- * Submitting needs none: handing an indent over is not an authorisation. The
- * gate is on the two actions where money starts moving.
+ * Submitting needs none beyond being able to raise an indent at all: handing
+ * one over is not an authorisation. The gate is on the two actions where money
+ * starts moving.
+ *
+ * This used to name the two boolean columns on `people` directly. It now
+ * returns an rbac permission, so the answer comes from one policy table rather
+ * than from a field on a row — which is what lets a role grant approval without
+ * every account being edited.
  */
-export function requiredRole(action: WorkflowAction): PersonRole | null {
-  if (action === 'approve') return 'canApprove';
-  if (action === 'reject') return 'canReject';
+export function requiredPermission(action: WorkflowAction): Permission | null {
+  if (action === 'approve') return 'indent:approve';
+  if (action === 'reject') return 'indent:reject';
   return null;
 }
 
 /** Everything this person is allowed to do to an indent in this state. */
 export function allowedActions(
   status: IndentStatus,
-  person: { canApprove: boolean; canReject: boolean } | null,
+  person: Principal | null,
 ): TransitionRule[] {
   return availableActions(status).filter((rule) => {
-    const needed = requiredRole(rule.action);
+    const needed = requiredPermission(rule.action);
     if (!needed) return true;
-    return Boolean(person?.[needed]);
+    return can(person, needed);
   });
 }
 

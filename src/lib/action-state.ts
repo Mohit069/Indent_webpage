@@ -12,6 +12,13 @@ export interface ActionResult {
   ok?: true;
   /** A message about the whole form. */
   error?: string;
+  /**
+   * A confirmation to show in place, for actions that stay on the page rather
+   * than redirecting. `ok` says *that* it worked; this says what happened, and
+   * some results are worth spelling out — an account created without a password
+   * looks broken until you are told that is a state it can be in.
+   */
+  success?: string;
   /** Messages keyed by field name. */
   fieldErrors?: Record<string, string>;
 }
