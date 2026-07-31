@@ -163,33 +163,64 @@ export const indentSchema = z.object({
 });
 
 /**
- * FormData → the object `indentSchema` expects.
+ * Read one field out of a FormData, as Zod wants it.
  *
- * The reason this exists rather than being written inline at the call site:
+ * THE ONLY WAY THIS CODEBASE READS A FORM FIELD. Never call `formData.get()`
+ * directly at a call site — read on.
+ *
  * `formData.get()` answers `null` for a field the form did not render, and a
- * Zod `.optional()` accepts `undefined` but rejects `null`. So deleting a box
- * from the form silently turned it into a *required* field — the server kept
- * reading it, got null, and reported the field as invalid under its own name.
- * That is exactly how "deptRef" came to be demanded by a form that no longer
- * had a department-reference box on it.
+ * Zod `.optional()` accepts `undefined` but rejects `null`. So an optional
+ * field that is simply absent from the markup does not come through as
+ * "missing"; it comes through as *invalid*, and the schema reports an error
+ * against a box that is not on the screen.
  *
- * Normalising null to undefined here means removing a field from the UI can
- * never again resurrect it as a validation error.
+ * That failure is close to invisible, because forms only render errors for the
+ * fields they know about. It has now caused two separate bugs:
+ *
+ *   deptRef   — a removed field kept being demanded by a form that no longer
+ *               had it, and named itself in the error.
+ *   returnTo  — sign-in did nothing at all. The action ran, the schema refused
+ *               a null `returnTo`, and the login form had no place to show an
+ *               error about a hidden field, so the page just sat there.
+ *
+ * The same shape almost certainly explains why Reject never appeared to work:
+ * its form has no password box, so `password` arrived as null and was rejected
+ * before anything happened.
  */
-export function indentInputFromForm(formData: FormData, lines: unknown) {
-  const field = (name: string): string | undefined => {
-    const value = formData.get(name);
-    return typeof value === 'string' ? value : undefined;
-  };
+export function formValue(formData: FormData, name: string): string | undefined {
+  const value = formData.get(name);
+  // A File is not a string; treat it as absent rather than passing it to Zod.
+  return typeof value === 'string' ? value : undefined;
+}
 
+/** A checkbox: absent when unticked, "on" when ticked. */
+export function formFlag(formData: FormData, name: string): boolean {
+  return formData.get(name) !== null;
+}
+
+/** Several fields at once, keyed by name. Saves a dozen repetitive lines in
+ *  actions that read a whole form. */
+export function formValues<K extends string>(
+  formData: FormData,
+  names: readonly K[],
+): Record<K, string | undefined> {
+  const out = {} as Record<K, string | undefined>;
+  for (const name of names) out[name] = formValue(formData, name);
+  return out;
+}
+
+/** FormData → the object `indentSchema` expects. */
+export function indentInputFromForm(formData: FormData, lines: unknown) {
   return {
-    indentDate: field('indentDate'),
-    departmentName: field('departmentName'),
-    requesterName: field('requesterName'),
-    requesterDesignation: field('requesterDesignation'),
-    purpose: field('purpose'),
-    expectedDate: field('expectedDate'),
-    priority: field('priority') ?? 'LEVEL_3',
+    ...formValues(formData, [
+      'indentDate',
+      'departmentName',
+      'requesterName',
+      'requesterDesignation',
+      'purpose',
+      'expectedDate',
+    ]),
+    priority: formValue(formData, 'priority') ?? 'LEVEL_3',
     lines,
   };
 }

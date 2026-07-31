@@ -1,6 +1,6 @@
 import 'server-only';
 import { createHash, randomBytes } from 'node:crypto';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { cache } from 'react';
 import { and, eq, gt, lt } from 'drizzle-orm';
 import { db } from '@/db';
@@ -50,11 +50,27 @@ export async function createSession(personId: string): Promise<void> {
     expiresAt,
   });
 
+  /*
+   * Secure only when the connection actually is.
+   *
+   * Keyed off NODE_ENV at first, which is wrong in a way that would have been
+   * painful to diagnose: a browser silently discards a Secure cookie sent over
+   * plain http, so signing in from a phone at http://192.168.31.8:3000 — the
+   * way this gets used on the plant floor — would have failed with no error
+   * anywhere. It works on localhost only because browsers treat that one host
+   * as a secure context regardless.
+   *
+   * `x-forwarded-proto` is set by Vercel and by any sensible reverse proxy, so
+   * a real deployment still gets Secure without configuring anything.
+   */
+  const proto = (await headers()).get('x-forwarded-proto');
+  const isHttps = proto ? proto.split(',')[0].trim() === 'https' : false;
+
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isHttps,
     path: '/',
     /*
      * maxAge in seconds, not `expires` as a Date.

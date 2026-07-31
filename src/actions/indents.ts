@@ -13,7 +13,12 @@ import {
   uoms,
 } from '@/db/schema';
 import type { IndentStatus } from '@/db/schema';
-import { indentInputFromForm, indentSchema, transitionSchema } from '@/lib/validation';
+import {
+  formValues,
+  indentInputFromForm,
+  indentSchema,
+  transitionSchema,
+} from '@/lib/validation';
 import { actorSnapshot, getActor } from '@/lib/actor';
 import { financialYear, formatIndentNo, hashLines } from '@/lib/indent-no';
 import {
@@ -491,12 +496,19 @@ export async function transitionIndent(
   _prev: IndentActionState,
   formData: FormData,
 ): Promise<IndentActionState> {
-  const parsed = transitionSchema.safeParse({
-    indentId: formData.get('indentId'),
-    action: formData.get('action'),
-    password: formData.get('password'),
-    returnTo: formData.get('returnTo'),
-  });
+  /*
+   * `formValues`, not `formData.get`.
+   *
+   * This is very likely why Reject never worked. Approve opens a dialog with a
+   * password box; Reject is a bare form with no password field at all, so
+   * `password` arrived as null, Zod's .optional() refused it, and the action
+   * returned a field error for a control that does not exist on that form —
+   * which the button had nowhere to display. One click, nothing happens, no
+   * message. Exactly what was reported and what I could never reproduce.
+   */
+  const parsed = transitionSchema.safeParse(
+    formValues(formData, ['indentId', 'action', 'password', 'returnTo']),
+  );
 
   if (!parsed.success) {
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };

@@ -9,7 +9,12 @@ import { authorize } from '@/lib/guard';
 import { destroyAllSessionsFor, hashPassword, normaliseEmail } from '@/lib/auth';
 import { logActivity } from '@/lib/activity';
 import { PermissionError } from '@/lib/rbac';
-import { personSchema, resetPasswordSchema } from '@/lib/validation';
+import {
+  formFlag,
+  formValues,
+  personSchema,
+  resetPasswordSchema,
+} from '@/lib/validation';
 import type { ActionResult } from '@/lib/action-state';
 
 /*
@@ -52,16 +57,20 @@ export async function createUser(
     return refuse(err);
   }
 
+  // phone, departmentId and password are all optional and all routinely left
+  // blank or absent — read through formValue so absent means absent.
   const parsed = personSchema.safeParse({
-    name: formData.get('name'),
-    designation: formData.get('designation'),
-    email: formData.get('email'),
-    phone: formData.get('phone'),
-    role: formData.get('role'),
-    departmentId: formData.get('departmentId'),
-    password: formData.get('password'),
-    canApprove: formData.get('canApprove') !== null,
-    canReject: formData.get('canReject') !== null,
+    ...formValues(formData, [
+      'name',
+      'designation',
+      'email',
+      'phone',
+      'role',
+      'departmentId',
+      'password',
+    ]),
+    canApprove: formFlag(formData, 'canApprove'),
+    canReject: formFlag(formData, 'canReject'),
   });
 
   if (!parsed.success) return { fieldErrors: fieldErrorsFrom(parsed.error.issues) };
@@ -234,11 +243,9 @@ export async function resetUserPassword(
     return refuse(err);
   }
 
-  const parsed = resetPasswordSchema.safeParse({
-    personId: formData.get('personId'),
-    password: formData.get('password'),
-    confirmPassword: formData.get('confirmPassword'),
-  });
+  const parsed = resetPasswordSchema.safeParse(
+    formValues(formData, ['personId', 'password', 'confirmPassword']),
+  );
 
   if (!parsed.success) return { fieldErrors: fieldErrorsFrom(parsed.error.issues) };
 

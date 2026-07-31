@@ -13,9 +13,15 @@ import { hashPassword, normaliseEmail, verifyPassword } from '../src/lib/passwor
 import { checkActionPassword } from '../src/lib/action-password';
 import { shouldCloseAfter } from '../src/lib/action-state';
 import {
+  changePasswordSchema,
+  formFlag,
+  formValue,
+  formValues,
   indentInputFromForm,
   indentLineSchema,
   indentSchema,
+  loginSchema,
+  personSchema,
   transitionSchema,
 } from '../src/lib/validation';
 import { describeMissing, labelForPath } from '../src/lib/form-summary';
@@ -581,6 +587,93 @@ async function main() {
 
   check('permissions cannot conjure an action the state forbids',
     names('DRAFT', superAdmin) === 'submit');
+
+  // -------------------------------------------------------------------------
+  console.log('\nAbsent optional fields (the null-vs-undefined trap)');
+  // -------------------------------------------------------------------------
+  /*
+   * The bug that has now bitten three times.
+   *
+   * `formData.get()` answers null for a field the form did not render, and
+   * Zod's .optional() accepts undefined but rejects null. So an optional field
+   * that is simply absent from the markup is reported as *invalid* — against a
+   * control that is not on the screen, which means the form has nowhere to show
+   * the error and the page appears to do nothing at all.
+   *
+   *   deptRef   a removed field kept being demanded, and named itself
+   *   returnTo  sign-in silently did nothing
+   *   password  Reject silently did nothing, for the same reason
+   *
+   * Every schema that reads a form is checked here against a payload built the
+   * way the action builds it, with the optional fields genuinely missing.
+   */
+  const emptyForm = new FormData();
+
+  check('formValue turns an absent field into undefined',
+    formValue(emptyForm, 'nothing') === undefined);
+  check('formFlag reads an unticked checkbox as false',
+    formFlag(emptyForm, 'nothing') === false);
+
+  // --- sign-in, with no returnTo box on the page ---------------------------
+  const loginForm = new FormData();
+  loginForm.set('email', 'saurabh@artizia.co.in');
+  loginForm.set('password', 'whatever-they-typed');
+
+  const loginParsed = loginSchema.safeParse(
+    formValues(loginForm, ['email', 'password', 'returnTo']),
+  );
+  check('sign-in accepts a form with no returnTo field', loginParsed.success,
+    loginParsed.success ? '' : JSON.stringify(loginParsed.error.issues));
+
+  // Proof the trap is real, so this test cannot be neutered by accident.
+  const loginRaw = loginSchema.safeParse({
+    email: 'saurabh@artizia.co.in',
+    password: 'whatever-they-typed',
+    returnTo: loginForm.get('returnTo'),
+  });
+  check('and reading it raw would have refused it — the trap is real',
+    !loginRaw.success);
+
+  // --- Reject, whose form has no password box ------------------------------
+  const rejectForm = new FormData();
+  rejectForm.set('indentId', '11111111-1111-4111-8111-111111111111');
+  rejectForm.set('action', 'reject');
+  rejectForm.set('returnTo', '/indents');
+
+  const rejectParsed = transitionSchema.safeParse(
+    formValues(rejectForm, ['indentId', 'action', 'password', 'returnTo']),
+  );
+  check('Reject accepts a form with no password field', rejectParsed.success,
+    rejectParsed.success ? '' : JSON.stringify(rejectParsed.error.issues));
+
+  // --- a forced password change, with no current-password box --------------
+  const pwForm = new FormData();
+  pwForm.set('password', 'a-long-enough-password');
+  pwForm.set('confirmPassword', 'a-long-enough-password');
+
+  const pwParsed = changePasswordSchema.safeParse(
+    formValues(pwForm, ['currentPassword', 'password', 'confirmPassword']),
+  );
+  check('a forced password change accepts no current password', pwParsed.success,
+    pwParsed.success ? '' : JSON.stringify(pwParsed.error.issues));
+
+  // --- creating a user with only the required boxes filled -----------------
+  const userForm = new FormData();
+  userForm.set('name', 'Ramesh Kumar');
+  userForm.set('designation', 'Head — Maintenance');
+  userForm.set('email', 'ramesh@artizia.co.in');
+  userForm.set('role', 'HOD');
+
+  const userParsed = personSchema.safeParse({
+    ...formValues(userForm, [
+      'name', 'designation', 'email', 'phone', 'role', 'departmentId', 'password',
+    ]),
+    canApprove: formFlag(userForm, 'canApprove'),
+    canReject: formFlag(userForm, 'canReject'),
+  });
+  check('a user can be created with no phone, department or password',
+    userParsed.success,
+    userParsed.success ? '' : JSON.stringify(userParsed.error.issues));
 
   // -------------------------------------------------------------------------
   console.log('\nPasswords');

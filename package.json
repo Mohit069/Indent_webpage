@@ -22,6 +22,7 @@
     "check": "tsx scripts/dev-check.ts",
     "check:pages": "tsx scripts/page-check.ts",
     "check:auth": "tsx scripts/auth-check.ts",
+    "check:reject": "tsx scripts/reject-check.ts",
     "local-db": "tsx scripts/local-db.ts"
   },
   "dependencies": {

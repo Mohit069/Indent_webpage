@@ -16,7 +16,7 @@ import {
   verifyPassword,
 } from '@/lib/auth';
 import { logActivity } from '@/lib/activity';
-import { changePasswordSchema, loginSchema } from '@/lib/validation';
+import { changePasswordSchema, formValues, loginSchema } from '@/lib/validation';
 import type { ActionResult } from '@/lib/action-state';
 
 /*
@@ -47,11 +47,16 @@ export async function signIn(
   _prev: ActionResult,
   formData: FormData,
 ): Promise<ActionResult> {
-  const parsed = loginSchema.safeParse({
-    email: formData.get('email'),
-    password: formData.get('password'),
-    returnTo: formData.get('returnTo'),
-  });
+  /*
+   * `formValue`, not `formData.get`. `returnTo` is only rendered when there is
+   * somewhere to return to, so on an ordinary visit it is absent — and absent
+   * arrives as null, which Zod's .optional() refuses. That refusal is what made
+   * signing in do nothing at all: the action ran, the schema reported an error
+   * against a hidden field, and this form has nowhere to show one.
+   */
+  const parsed = loginSchema.safeParse(
+    formValues(formData, ['email', 'password', 'returnTo']),
+  );
 
   if (!parsed.success) return { fieldErrors: fieldErrorsFrom(parsed.error.issues) };
 
@@ -196,11 +201,14 @@ export async function changePassword(
   const user = await getCurrentUser();
   if (!user) redirect('/login');
 
-  const parsed = changePasswordSchema.safeParse({
-    currentPassword: formData.get('currentPassword'),
-    password: formData.get('password'),
-    confirmPassword: formData.get('confirmPassword'),
-  });
+  /*
+   * Same reason as signIn: on a forced change the current-password box is not
+   * rendered at all, so reading it directly would hand Zod a null and refuse
+   * the whole form over a field the person cannot see.
+   */
+  const parsed = changePasswordSchema.safeParse(
+    formValues(formData, ['currentPassword', 'password', 'confirmPassword']),
+  );
 
   if (!parsed.success) return { fieldErrors: fieldErrorsFrom(parsed.error.issues) };
 
