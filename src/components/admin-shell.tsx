@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
   Settings,
   Users,
 } from 'lucide-react';
@@ -136,6 +137,41 @@ export function AdminShell({
           )}
         </div>
 
+        {/*
+         * A way back into the requester's app.
+         *
+         * Without this the admin area is a dead end: the policy grants a Super
+         * Admin `indent:create`, but every link in this sidebar points at
+         * /admin/*, so there was no route to the form at all — the permission
+         * existed and could not be used. Gated on the permission rather than on
+         * the role, so removing indent:create from SUPER_ADMIN in rbac.ts is all
+         * it takes to enforce "only HODs raise indents".
+         */}
+        {can(principal, 'indent:create') && (
+          <div className="px-3 pt-4">
+            <Link
+              href="/indents/new"
+              title={collapsed ? 'New Indent' : undefined}
+              className={cn(
+                'flex h-11 items-center rounded-lg bg-primary font-medium text-primary-ink shadow-[var(--shadow-card)] transition-[background-color,transform] duration-150 hover:bg-primary-hover active:scale-[0.985]',
+                collapsed ? 'justify-center px-0' : 'gap-2 px-3.5 text-sm',
+              )}
+            >
+              <Plus size={18} aria-hidden />
+              {!collapsed && 'New Indent'}
+            </Link>
+            {!collapsed && (
+              <Link
+                href="/indents"
+                className="mt-2 flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-medium text-muted transition-colors hover:bg-raised hover:text-ink"
+              >
+                <ClipboardList size={15} aria-hidden />
+                Requester view
+              </Link>
+            )}
+          </div>
+        )}
+
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
           {nav.map((item) => {
             const active = isActive(item);
@@ -226,10 +262,13 @@ export function AdminShell({
           <div className="mx-auto w-full max-w-[1400px]">{children}</div>
         </main>
 
-        {/* Phones: the four that get used standing up. The rest stay on the
-            desktop sidebar rather than being crushed into a strip. */}
+        {/*
+         * Phones — and, just as often, a laptop with devtools docked. The
+         * sidebar disappears below 1024px, so anything only in the sidebar is
+         * simply gone at 986px wide. The three most-used links plus New.
+         */}
         <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
-          {nav.slice(0, 4).map((item) => {
+          {nav.slice(0, 3).map((item) => {
             const active = isActive(item);
             return (
               <Link
@@ -251,6 +290,16 @@ export function AdminShell({
               </Link>
             );
           })}
+
+          {can(principal, 'indent:create') && (
+            <Link
+              href="/indents/new"
+              className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-semibold text-primary"
+            >
+              <Plus size={20} aria-hidden />
+              New
+            </Link>
+          )}
         </nav>
       </div>
     </div>
