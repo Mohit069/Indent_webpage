@@ -71,7 +71,6 @@ export function LineEditor({
   const [lines, setLines] = useState<EditorLine[]>(
     initialLines.length > 0 ? initialLines : [emptyLine(defaultUom)],
   );
-  const uomListId = useId();
   const itemListId = useId();
 
   function update(index: number, patch: Partial<EditorLine>) {
@@ -110,24 +109,22 @@ export function LineEditor({
    * A datalist offers what is already in the item master as you type, without
    * ever standing between you and something that is not in it. The catalog
    * still earns its keep — it just stopped being a gate.
+   *
+   * The unit deliberately has none. Chrome draws a dropdown arrow inside any
+   * input carrying `list`, and on the unit cell that arrow was the widest thing
+   * in a column whose entire content is three letters — it read as a control
+   * worth pressing when the answer is NOS on nearly every row. The field is
+   * pre-filled, free text, and upper-cased on save; a picker for it was never
+   * earning its space.
    */
   const suggestions = (
-    <>
-      <datalist id={itemListId}>
-        {items.map((item) => (
-          <option key={item.id} value={item.name}>
-            {item.specification ?? item.code}
-          </option>
-        ))}
-      </datalist>
-      <datalist id={uomListId}>
-        {uoms.map((u) => (
-          <option key={u.id} value={u.code}>
-            {u.name}
-          </option>
-        ))}
-      </datalist>
-    </>
+    <datalist id={itemListId}>
+      {items.map((item) => (
+        <option key={item.id} value={item.name}>
+          {item.specification ?? item.code}
+        </option>
+      ))}
+    </datalist>
   );
 
   return (
@@ -177,13 +174,14 @@ export function LineEditor({
                     </div>
                   </Td>
                   <Td>
+                    {/* No `list` here on purpose — see the note by the
+                        datalists below. */}
                     <RowInput
                       value={line.uomCode}
                       onChange={(v) => update(i, { uomCode: v })}
                       className={cn(cell, 'uppercase')}
                       label={`Unit for row ${i + 1}`}
                       error={errorFor(i, 'uomCode')}
-                      list={uomListId}
                       maxLength={12}
                     />
                   </Td>
@@ -260,7 +258,6 @@ export function LineEditor({
                     onChange={(v) => update(i, { uomCode: v })}
                     className={cn(inputClass, 'px-3 uppercase')}
                     error={errorFor(i, 'uomCode')}
-                    list={uomListId}
                     maxLength={12}
                   />
                 </label>

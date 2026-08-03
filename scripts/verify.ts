@@ -771,6 +771,59 @@ async function main() {
     !/key=\{revealed/.test(pwSrc));
 
   // -------------------------------------------------------------------------
+  console.log('\nThe form keeps what was typed');
+  // -------------------------------------------------------------------------
+  /*
+   * React resets an uncontrolled form once its action completes — including
+   * when the action came back with field errors. So submitting with one box
+   * empty wiped every other box on the way to reporting which one was wrong,
+   * and the whole header had to be typed again. It reached a user before it was
+   * noticed, because the item rows survived — the editor holds those in its own
+   * state — and losing only half a form reads as a glitch rather than a bug.
+   *
+   * The fix is that the header fields are controlled. Re-pointing defaultValue
+   * would not have worked: React does not push a changed defaultValue into an
+   * input that is already mounted.
+   *
+   * These read source rather than drive a browser, so they prove structure, not
+   * behaviour. Worth having anyway: it is a one-word regression to reintroduce
+   * and silent when made.
+   */
+  const formSrc = readFileSync(
+    join(process.cwd(), 'src/components/indent-form.tsx'),
+    'utf8',
+  );
+
+  check('the header fields are held in state',
+    /const \[fields, setFields\] = useState\(/.test(formSrc));
+  check('and none of them fall back to an uncontrolled defaultValue',
+    !/defaultValue=\{initial\?\./.test(formSrc));
+  check('every one of them is bound through the helper',
+    (formSrc.match(/\{\.\.\.bind\('/g) ?? []).length === 7);
+
+  /*
+   * `required` on the two fields the schema refuses anyway, so the browser
+   * blocks the submission before it is posted and the round-trip that used to
+   * lose the typing never happens for the common mistake.
+   */
+  check('the department is refused by the browser before posting',
+    /name="departmentName"[\s\S]{0,240}required/.test(formSrc));
+  check('so is the requester name',
+    /name="requesterName"[\s\S]{0,240}required/.test(formSrc));
+
+  /*
+   * The unit column carries no datalist. Chrome draws a dropdown arrow inside
+   * any input with `list`, and on a three-letter column that arrow was the
+   * widest thing in it.
+   */
+  const editorSrc = readFileSync(
+    join(process.cwd(), 'src/components/line-editor.tsx'),
+    'utf8',
+  );
+  check('the unit field has no picker attached', !/uomListId/.test(editorSrc));
+  check('but the item name still offers the catalog',
+    /list=\{itemListId\}/.test(editorSrc));
+  // -------------------------------------------------------------------------
   console.log('\nTyped unit of measure');
   // -------------------------------------------------------------------------
   const line = (uomCode: string) =>

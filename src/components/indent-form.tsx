@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useRef } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { AlertTriangle, Loader2, Send } from 'lucide-react';
 import { saveIndent, type IndentActionState } from '@/actions/indents';
@@ -73,6 +73,37 @@ export function IndentForm({
   );
 
   const today = new Date().toISOString().slice(0, 10);
+
+  /*
+   * The header fields are controlled, and that is not a style preference.
+   *
+   * React resets an uncontrolled form once its action completes — including
+   * when the action came back with errors. So pressing Send with one box empty
+   * wiped every other box on the way to telling you which one was wrong, and
+   * the whole form had to be typed again. The item rows survived, because the
+   * editor below keeps them in its own state; only this half was lost, which
+   * made the bug look arbitrary.
+   *
+   * Holding them here means the reset has nothing to reset to but what was
+   * already typed. Re-pointing `defaultValue` would not have worked: React does
+   * not push a changed defaultValue into an input that is already mounted.
+   */
+  const [fields, setFields] = useState({
+    indentDate: initial?.indentDate ?? today,
+    departmentName: initial?.departmentName ?? '',
+    requesterName: initial?.requesterName ?? '',
+    requesterDesignation: initial?.requesterDesignation ?? '',
+    priority: initial?.priority ?? 'LEVEL_3',
+    expectedDate: initial?.expectedDate ?? '',
+    purpose: initial?.purpose ?? '',
+  });
+
+  const bind = (name: keyof typeof fields) => ({
+    value: fields[name],
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setFields((f) => ({ ...f, [name]: e.target.value })),
+  });
+
   const missing = describeMissing(state.fieldErrors);
   const summaryRef = useRef<HTMLDivElement>(null);
 
@@ -164,11 +195,7 @@ export function IndentForm({
               hint="Leave it as today unless you are recording an older indent."
               error={state.fieldErrors?.indentDate}
             >
-              <Input
-                name="indentDate"
-                type="date"
-                defaultValue={initial?.indentDate ?? today}
-              />
+              <Input name="indentDate" type="date" {...bind('indentDate')} />
             </Field>
 
             <Field
@@ -177,11 +204,16 @@ export function IndentForm({
               error={state.fieldErrors?.departmentName}
               required
             >
+              {/* `required` so the browser refuses before the form is ever
+                  posted — the fastest possible feedback, and it keeps the
+                  round-trip that used to lose the typing from happening at
+                  all. The server still checks; this is not the gate. */}
               <Input
                 name="departmentName"
                 list="department-names"
-                defaultValue={initial?.departmentName ?? ''}
+                required
                 placeholder="e.g. Maintenance"
+                {...bind('departmentName')}
               />
               <datalist id="department-names">
                 {departments.map((name) => (
@@ -199,7 +231,8 @@ export function IndentForm({
               <Input
                 name="requesterName"
                 list="requester-names"
-                defaultValue={initial?.requesterName ?? ''}
+                required
+                {...bind('requesterName')}
               />
               <datalist id="requester-names">
                 {requesterSuggestions.map((n) => (
@@ -213,10 +246,7 @@ export function IndentForm({
               hint="Optional — printed under their name on the indent."
               error={state.fieldErrors?.requesterDesignation}
             >
-              <Input
-                name="requesterDesignation"
-                defaultValue={initial?.requesterDesignation ?? ''}
-              />
+              <Input name="requesterDesignation" {...bind('requesterDesignation')} />
             </Field>
 
             <Field
@@ -224,7 +254,7 @@ export function IndentForm({
               hint="How soon it is actually needed. Pick the honest one — ASAP means today."
               error={state.fieldErrors?.priority}
             >
-              <Select name="priority" defaultValue={initial?.priority ?? 'LEVEL_3'}>
+              <Select name="priority" {...bind('priority')}>
                 {PRIORITY_ORDER.map((p) => (
                   <option key={p} value={p}>
                     {PRIORITY_LABELS[p]}
@@ -238,11 +268,7 @@ export function IndentForm({
               hint="Optional — when the material is needed by."
               error={state.fieldErrors?.expectedDate}
             >
-              <Input
-                name="expectedDate"
-                type="date"
-                defaultValue={initial?.expectedDate ?? ''}
-              />
+              <Input name="expectedDate" type="date" {...bind('expectedDate')} />
             </Field>
 
             <Field
@@ -254,8 +280,8 @@ export function IndentForm({
               <Textarea
                 name="purpose"
                 rows={3}
-                defaultValue={initial?.purpose ?? ''}
                 placeholder="e.g. Line 2 polishing head is seizing — bearing and belt need replacing before the next shift."
+                {...bind('purpose')}
               />
             </Field>
           </div>
