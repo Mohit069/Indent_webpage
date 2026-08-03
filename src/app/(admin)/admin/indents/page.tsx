@@ -12,7 +12,7 @@ export const metadata = { title: 'All Indents — Administration' };
 const PAGE_SIZE = 20;
 
 const PRIORITIES = ['ASAP', 'LEVEL_1', 'LEVEL_2', 'LEVEL_3'] as const;
-const STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'] as const;
+const STATUSES = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'CLOSED', 'REJECTED'] as const;
 
 export default async function AllIndentsPage({
   searchParams,

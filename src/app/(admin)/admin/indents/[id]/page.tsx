@@ -4,7 +4,13 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { AlertTriangle, ArrowLeft, Printer } from 'lucide-react';
 import { getIndent } from '@/lib/queries';
 import { requirePermission } from '@/lib/guard';
-import { allowedActions, availableActions, STAGE_LABELS } from '@/lib/workflow';
+import {
+  actionHint,
+  allowedActions,
+  availableActions,
+  isAwaitingMaterial,
+  STAGE_LABELS,
+} from '@/lib/workflow';
 import { hashLines } from '@/lib/indent-no';
 import {
   Alert,
@@ -57,6 +63,11 @@ export default async function AdminIndentDetailPage({
     (a) => a.action !== 'submit',
   );
   const decisionsExist = availableActions(indent.status).some((a) => a.action !== 'submit');
+
+  const awaitingMaterial = isAwaitingMaterial(indent.status);
+  // Recorded on the event, not on a column — see the note on the requester's
+  // copy of this page.
+  const completedEvent = events.find((e) => e.stage === 'CLOSE');
 
   /*
    * Tamper check.
@@ -151,6 +162,16 @@ export default async function AdminIndentDetailPage({
                   label="Approved"
                   value={indent.approvedAt ? format(indent.approvedAt, 'd MMM yyyy, HH:mm') : '—'}
                 />
+                <Detail
+                  label="Material received"
+                  value={
+                    completedEvent
+                      ? `${format(new Date(completedEvent.createdAt), 'd MMM yyyy, HH:mm')} · ${completedEvent.actorNameSnapshot}`
+                      : awaitingMaterial
+                        ? 'Not yet — waiting on the store'
+                        : '—'
+                  }
+                />
                 {indent.purpose && (
                   <div className="sm:col-span-2 lg:col-span-3">
                     <Detail label="Purpose / remarks" value={indent.purpose} />
@@ -216,7 +237,12 @@ export default async function AdminIndentDetailPage({
         <div className="flex flex-col gap-6">
           {decisionsExist && (
             <Card>
-              <CardHeader title="Decision" description={`Recorded against ${decider.name}.`} />
+              <CardHeader
+                // "Decision" is the wrong word once the only thing left to do is
+                // record that the delivery turned up — that is a fact, not a call.
+                title={awaitingMaterial ? 'Receipt' : 'Decision'}
+                description={`Recorded against ${decider.name}.`}
+              />
               <CardBody className="flex flex-col gap-4">
                 {decideActions.length > 0 ? (
                   <>
@@ -227,15 +253,15 @@ export default async function AdminIndentDetailPage({
                       actorName={decider.name}
                     />
                     <p className="text-xs leading-relaxed text-muted">
-                      Approving asks you to confirm. Reject takes effect on the click,
-                      with no confirmation.
+                      {actionHint(decideActions)}
                     </p>
                   </>
                 ) : (
                   <p className="rounded-lg border border-line bg-sunken px-3.5 py-3 text-sm leading-relaxed text-muted">
-                    This is waiting for a decision, but{' '}
-                    <span className="font-medium text-ink">{decider.name}</span> may not make
-                    one. Approval rights are granted under{' '}
+                    This is waiting to be{' '}
+                    {awaitingMaterial ? 'marked completed' : 'decided'}, but{' '}
+                    <span className="font-medium text-ink">{decider.name}</span> may not do
+                    that. Rights are granted under{' '}
                     <Link href="/admin/users" className="text-primary hover:underline">
                       Users
                     </Link>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, Send, X } from 'lucide-react';
+import { CheckCircle2, PackageCheck, XCircle, Send, X } from 'lucide-react';
 
 /*
  * "It worked" — said out loud, then got out of the way.
@@ -20,10 +20,22 @@ import { CheckCircle2, XCircle, Send, X } from 'lucide-react';
 const OUTCOMES = {
   approve: {
     title: 'Approved',
-    detail: 'It can now be procured.',
+    detail: 'It can now be procured. Mark it completed once the material arrives.',
     icon: CheckCircle2,
     className: 'border-green-200 bg-success-soft text-green-900',
     iconClassName: 'text-success',
+  },
+  complete: {
+    title: 'Completed',
+    detail: 'Material received and checked. This indent is finished.',
+    icon: PackageCheck,
+    /*
+     * Teal, matching the status chip, and deliberately not the green used for
+     * Approved — the two are a fortnight apart in real life and would otherwise
+     * be the same flash of the same colour.
+     */
+    className: 'border-teal-200 bg-teal-50 text-teal-900',
+    iconClassName: 'text-teal-700',
   },
   reject: {
     title: 'Rejected',

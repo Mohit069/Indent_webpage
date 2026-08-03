@@ -6,7 +6,9 @@ import {
   Clock,
   FileEdit,
   Flame,
+  PackageCheck,
   Timer,
+  Truck,
   XCircle,
 } from 'lucide-react';
 import { dashboardStats, listIndentsPaged } from '@/lib/admin-queries';
@@ -130,6 +132,31 @@ export default async function AdminDashboard() {
           tone="success"
         />
         <Tile label="Rejected today" value={stats.rejectedToday} icon={XCircle} tone="danger" />
+        {/*
+          Approved and still waiting on the store. Linked, because unlike the
+          two counts above it this one is a to-do list rather than a statistic:
+          every indent in it is somebody waiting for something.
+        */}
+        <Tile
+          label="Awaiting material"
+          value={stats.awaitingMaterial}
+          icon={Truck}
+          tone={stats.awaitingMaterial > 0 ? 'warning' : 'neutral'}
+          href="/admin/indents?status=APPROVED"
+          note={
+            stats.awaitingMaterial > 0
+              ? 'Approved, not yet delivered'
+              : 'Everything approved has arrived'
+          }
+        />
+        <Tile
+          label="Completed"
+          value={stats.completed}
+          icon={PackageCheck}
+          tone="success"
+          href="/admin/indents?status=CLOSED"
+          note="Delivered and checked"
+        />
         <Tile
           label="Drafts"
           value={stats.totalDrafts}

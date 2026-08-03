@@ -1,11 +1,13 @@
 import { notFound } from 'next/navigation';
 import { format } from 'date-fns';
-import { Printer, Pencil, AlertTriangle, XCircle } from 'lucide-react';
+import { Printer, Pencil, AlertTriangle, PackageCheck, Truck, XCircle } from 'lucide-react';
 import { getIndent } from '@/lib/queries';
 import { actorSnapshot, getActor } from '@/lib/actor';
 import {
+  actionHint,
   allowedActions,
   availableActions,
+  isAwaitingMaterial,
   isEditable,
   STAGE_LABELS,
 } from '@/lib/workflow';
@@ -57,6 +59,15 @@ export default async function IndentDetailPage({
     (a) => a.action !== 'submit',
   );
   const canEdit = isEditable(indent.status);
+  const awaitingMaterial = isAwaitingMaterial(indent.status);
+
+  /*
+   * When the delivery was confirmed, read off the event rather than a column on
+   * the indent. There is no `completedAt` and adding one would duplicate what
+   * the CLOSE event already records — including who did it, which a timestamp
+   * column could not have carried.
+   */
+  const completedEvent = events.find((e) => e.stage === 'CLOSE');
 
   /*
    * Tamper check.
@@ -130,6 +141,40 @@ export default async function IndentDetailPage({
               </strong>{' '}
               The current rows do not match what was recorded at the last step. Check
               the history below before acting on it.
+            </span>
+          </p>
+        </Alert>
+      )}
+
+      {/*
+        Approved is not finished, and the chip alone does not say so — "Approved"
+        reads like an ending. This is the banner that tells whoever raised it
+        that the ball is now in the store's court, and what closes it.
+      */}
+      {awaitingMaterial && (
+        <Alert tone="info">
+          <p className="flex items-start gap-2">
+            <Truck size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+            <span>
+              <strong className="font-semibold">Approved — waiting for material.</strong>{' '}
+              Once it reaches the store and has been checked against this indent, mark it
+              completed.
+            </span>
+          </p>
+        </Alert>
+      )}
+
+      {completedEvent && (
+        <Alert tone="success">
+          <p className="flex items-start gap-2">
+            <PackageCheck size={16} className="mt-0.5 shrink-0 text-success" aria-hidden />
+            <span>
+              <strong className="font-semibold">Completed.</strong> Material received and
+              checked by {completedEvent.actorNameSnapshot} on{' '}
+              <span className="tabular">
+                {format(new Date(completedEvent.createdAt), 'd MMM yyyy')}
+              </span>
+              .
             </span>
           </p>
         </Alert>
@@ -257,16 +302,16 @@ export default async function IndentDetailPage({
                       actorName={actor.name}
                     />
                     <p className="text-xs leading-relaxed text-muted">
-                      Approving asks you to confirm. Reject takes effect on the
-                      click, with no confirmation.
+                      {actionHint(decideActions)}
                     </p>
                   </>
                 ) : (
                   decisionsExist && (
                     <p className="rounded-lg border border-line bg-sunken px-3.5 py-3 text-sm leading-relaxed text-muted">
-                      This indent is waiting for a decision, but{' '}
+                      This indent is waiting to be{' '}
+                      {awaitingMaterial ? 'marked completed' : 'decided'}, but{' '}
                       <span className="font-medium text-ink">{actor.name}</span> is not
-                      set up to make one. Permissions are granted under Settings →
+                      set up to do that. Permissions are granted under Settings →
                       People.
                     </p>
                   )

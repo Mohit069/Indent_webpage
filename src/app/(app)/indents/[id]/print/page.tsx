@@ -35,6 +35,7 @@ export default async function PrintIndentPage({
   const submitEvent = events.find((e) => e.stage === 'SUBMIT');
   const receiptEvent = events.find((e) => e.stage === 'PURCHASE_RECEIPT');
   const approvalEvent = events.find((e) => e.stage === 'FINAL_APPROVAL');
+  const completedEvent = events.find((e) => e.stage === 'CLOSE');
 
   // The paper book ruled twelve rows; keep the block a constant height so the
   // signature boxes always land in the same place on the page.
@@ -175,6 +176,27 @@ export default async function PrintIndentPage({
             at={approvalEvent?.createdAt}
           />
         </div>
+
+        {/*
+          The completion line, printed only once it has happened.
+
+          On the pad this was written by hand across the foot of the sheet when
+          the material turned up, so a fourth signature box would be inventing
+          a box the book never had — and every unfinished indent would print
+          with an empty one, which is how a form teaches people to ignore it.
+          Printed blank, the sheet is exactly the facsimile it always was and
+          there is still white space to write on.
+        */}
+        {completedEvent && (
+          <div className="mt-3 border border-black p-2 text-[10px]">
+            <span className="font-semibold uppercase tracking-wide">Completed: </span>
+            Material received and checked by {completedEvent.actorNameSnapshot}
+            {completedEvent.actorDesignationSnapshot
+              ? ` (${completedEvent.actorDesignationSnapshot})`
+              : ''}{' '}
+            on {format(new Date(completedEvent.createdAt), 'dd/MM/yyyy')}.
+          </div>
+        )}
 
         <p className="mt-4 border-t border-black pt-2 text-[8px] leading-relaxed">
           Generated from the Purchase Indent System on{' '}

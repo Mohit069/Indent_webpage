@@ -36,6 +36,7 @@ const FILTERABLE_STATUSES: IndentStatus[] = [
   'DRAFT',
   'PENDING_APPROVAL',
   'APPROVED',
+  'CLOSED',
   'REJECTED',
 ];
 

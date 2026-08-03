@@ -28,6 +28,8 @@ export type ActivityAction =
   | 'indent.submit'
   | 'indent.approve'
   | 'indent.reject'
+  /** Material received and checked at the store — the indent is finished. */
+  | 'indent.complete'
   | 'indent.delete_draft'
   | 'user.create'
   | 'user.update'

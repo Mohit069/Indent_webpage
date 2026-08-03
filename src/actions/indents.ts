@@ -26,9 +26,10 @@ import {
   isEditable,
   requiredPermission,
   type TransitionRule,
+  type WorkflowAction,
 } from '@/lib/workflow';
 import { can } from '@/lib/rbac';
-import { logActivity } from '@/lib/activity';
+import { logActivity, type ActivityAction } from '@/lib/activity';
 import { notifyDecision, notifySubmitted } from '@/lib/notify';
 
 /*
@@ -56,6 +57,32 @@ function collectFieldErrors(issues: { path: (string | number)[]; message: string
 }
 
 type Actor = Awaited<ReturnType<typeof actorSnapshot>>;
+
+/*
+ * How each action is said, and how it is filed.
+ *
+ * One table rather than a chain of ternaries in three places. The chain worked
+ * while there were two actions to choose between — `action === 'approve' ? … :
+ * …` quietly means "reject" for everything that is not approve, which stopped
+ * being true the moment a third arrived and would have logged a completion as a
+ * rejection without erroring anywhere.
+ */
+const VERBS: Record<WorkflowAction, {
+  present: string;
+  past: string;
+  /* Typed, not `string`. That is what caught the missing 'indent.complete'
+   * entry in the log's own union rather than letting it reach the column. */
+  activity: ActivityAction;
+}> = {
+  submit: { present: 'submit', past: 'submitted', activity: 'indent.submit' },
+  approve: { present: 'approve', past: 'approved', activity: 'indent.approve' },
+  reject: { present: 'reject', past: 'rejected', activity: 'indent.reject' },
+  complete: {
+    present: 'complete',
+    past: 'marked completed',
+    activity: 'indent.complete',
+  },
+};
 
 /**
  * Map typed unit codes onto rows in the uoms master, adding any that are new.
@@ -546,9 +573,8 @@ export async function transitionIndent(
     if (!deciding) return { error: 'You are not signed in.' };
 
     if (!can(deciding, needed)) {
-      const verb = action === 'approve' ? 'approve' : 'reject';
       return {
-        error: `${deciding.name} is not allowed to ${verb} indents. Someone with that permission has to do it, or it can be granted under Users.`,
+        error: `${deciding.name} is not allowed to ${VERBS[action].present} indents. Someone with that permission has to do it, or it can be granted under Users.`,
       };
     }
   }
@@ -571,17 +597,10 @@ export async function transitionIndent(
   await logActivity({
     actorId: actor.id,
     actorName: actor.name,
-    action:
-      action === 'approve'
-        ? 'indent.approve'
-        : action === 'reject'
-          ? 'indent.reject'
-          : 'indent.submit',
+    action: VERBS[action].activity,
     entityType: 'indent',
     entityId: indent.id,
-    summary: `${actor.name} ${
-      action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'submitted'
-    } ${number}`,
+    summary: `${actor.name} ${VERBS[action].past} ${number}`,
   });
 
   if (action === 'approve' || action === 'reject') {

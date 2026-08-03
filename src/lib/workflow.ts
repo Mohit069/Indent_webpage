@@ -4,23 +4,32 @@ import { can, type Permission, type Principal } from '@/lib/rbac';
 /*
  * The workflow.
  *
- * Deliberately short: a draft is submitted, and then it is either approved or
- * rejected. Nothing else.
+ * A draft is submitted; it is approved or rejected; and an approved indent is
+ * closed off once the material it asked for has actually turned up.
  *
- *   DRAFT --submit--> PENDING_APPROVAL --approve--> APPROVED
+ *   DRAFT --submit--> PENDING_APPROVAL --approve--> APPROVED --complete--> CLOSED
  *                                     \--reject---> REJECTED
  *
- * Who may do each is decided by rbac.ts, and that is the whole of the
- * authorisation. Approve additionally asks "are you sure", which is a guard
- * against the wrong button, not against the wrong person.
+ * That last step is the one the paper form recorded by hand: the store takes
+ * delivery, the HOD checks it against the indent, and writes "completed" on the
+ * sheet. Until it is taken, an indent sits in APPROVED — which is not the same
+ * as finished, and is exactly the gap the physical book was tracking.
  *
- * The wider set of states (with-purchase, returned, procured, withdrawn) still
- * exists in the database enum so old rows keep resolving, but nothing in the UI
- * produces them any more. PO_CREATED, MATERIAL_RECEIVED and COMPLETED arrive
- * with the purchase module.
+ * Approval is deliberately not the end of the line. An indent that was approved
+ * three weeks ago and never arrived looks identical to one approved this morning
+ * unless something records the difference, and "nobody chased it" is the failure
+ * this stage is here to make visible.
+ *
+ * Who may do each is decided by rbac.ts, and that is the whole of the
+ * authorisation. Approve and Complete additionally ask "are you sure", which is
+ * a guard against the wrong button, not against the wrong person.
+ *
+ * CLOSED and its CLOSE event predate this — they were reserved in the database
+ * enum for the purchase module and never issued. Completion is what they were
+ * reserved for, so this needs no migration and old rows keep their meaning.
  */
 
-export type WorkflowAction = 'submit' | 'approve' | 'reject';
+export type WorkflowAction = 'submit' | 'approve' | 'reject' | 'complete';
 
 export interface TransitionRule {
   action: WorkflowAction;
@@ -86,6 +95,25 @@ export const TRANSITIONS: TransitionRule[] = [
     confirm: false,
     tone: 'danger',
   },
+  {
+    action: 'complete',
+    /*
+     * Only from APPROVED. Not from PENDING_APPROVAL, however obvious it may be
+     * that the material arrived: an indent nobody authorised has no business
+     * being closed as though it went through, and allowing it would leave a
+     * finished indent with no approval anywhere in its history.
+     */
+    from: ['APPROVED'],
+    to: 'CLOSED',
+    stage: 'CLOSE',
+    label: 'Mark completed',
+    /*
+     * Confirmed, for the same reason Approve is: there is no transition out of
+     * CLOSED, so this is the second of the two one-way doors in the workflow.
+     */
+    confirm: true,
+    tone: 'primary',
+  },
 ];
 
 /**
@@ -103,6 +131,7 @@ export const TRANSITIONS: TransitionRule[] = [
 export function requiredPermission(action: WorkflowAction): Permission | null {
   if (action === 'approve') return 'indent:approve';
   if (action === 'reject') return 'indent:reject';
+  if (action === 'complete') return 'indent:complete';
   return null;
 }
 
@@ -128,6 +157,38 @@ export function availableActions(status: IndentStatus): TransitionRule[] {
   return TRANSITIONS.filter((t) => t.from.includes(status));
 }
 
+/**
+ * The line of guidance printed under a set of action buttons.
+ *
+ * Built from the buttons actually on screen rather than written out at each
+ * call site. The sentence used to be a constant reading "Approving asks you to
+ * confirm. Reject takes effect on the click" — true wherever it appeared while
+ * those were the only two buttons, and wrong the moment an HOD sees a single
+ * Mark completed button with no approval anywhere near it.
+ */
+export function actionHint(actions: TransitionRule[]): string | null {
+  const has = (a: WorkflowAction) => actions.some((r) => r.action === a);
+  const parts: string[] = [];
+
+  if (has('approve') && has('reject')) {
+    parts.push(
+      'Approving asks you to confirm. Reject takes effect on the click, with no confirmation.',
+    );
+  } else if (has('approve')) {
+    parts.push('Approving asks you to confirm, and cannot be undone.');
+  } else if (has('reject')) {
+    parts.push('Reject takes effect on the click, with no confirmation.');
+  }
+
+  if (has('complete')) {
+    parts.push(
+      'Mark completed once the material has reached the store and been checked — it closes the indent for good.',
+    );
+  }
+
+  return parts.length > 0 ? parts.join(' ') : null;
+}
+
 export function findTransition(
   action: WorkflowAction,
   status: IndentStatus,
@@ -147,6 +208,23 @@ export function isAwaitingDecision(status: IndentStatus): boolean {
   return ['PENDING_APPROVAL', 'PENDING_PURCHASE', 'RETURNED'].includes(status);
 }
 
+/**
+ * Approved, but the material has not been confirmed as received.
+ *
+ * The state nothing used to distinguish. An indent stays here from the moment
+ * it is approved until somebody at the store says it arrived, which is where
+ * the waiting actually happens and is the only stretch of the workflow the app
+ * cannot shorten by itself.
+ */
+export function isAwaitingMaterial(status: IndentStatus): boolean {
+  return status === 'APPROVED';
+}
+
+/** Finished: raised, approved, delivered and checked. */
+export function isCompleted(status: IndentStatus): boolean {
+  return status === 'CLOSED';
+}
+
 // ---------------------------------------------------------------------------
 // Presentation
 // ---------------------------------------------------------------------------
@@ -156,11 +234,16 @@ export const STATUS_LABELS: Record<IndentStatus, string> = {
   PENDING_APPROVAL: 'Awaiting Approval',
   APPROVED: 'Approved',
   REJECTED: 'Rejected',
+  /*
+   * Not "Closed". The word on the paper form is "completed", written by hand by
+   * whoever checked the delivery, and the screen should say what the people
+   * using it say. "Closed" is the database's word for it, and it can stay there.
+   */
+  CLOSED: 'Completed',
   // Legacy states, kept so historical rows still render sensibly.
   PENDING_PURCHASE: 'Awaiting Approval',
   RETURNED: 'Awaiting Approval',
   CANCELLED: 'Withdrawn',
-  CLOSED: 'Procured',
 };
 
 /**
@@ -188,6 +271,6 @@ export const STAGE_LABELS: Record<EventStage, string> = {
   PURCHASE_RECEIPT: 'Received by Purchase Dept.',
   RETURN: 'Returned for changes',
   CANCEL: 'Withdrawn',
-  CLOSE: 'Marked procured',
+  CLOSE: 'Material received — completed',
   AMEND: 'Amended',
 };

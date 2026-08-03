@@ -3,19 +3,20 @@
 import { useActionState, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useFormStatus } from 'react-dom';
-import { Check, X, Loader2 } from 'lucide-react';
+import { Check, PackageCheck, X, Loader2 } from 'lucide-react';
 import { transitionIndent, type IndentActionState } from '@/actions/indents';
 import { shouldCloseAfter } from '@/lib/action-state';
 import type { TransitionRule } from '@/lib/workflow';
 import { buttonClass, cn } from '@/components/ui';
 
 /*
- * Deciding an indent.
+ * Deciding an indent, and closing it off once the material arrives.
  *
  * Two shapes, chosen by whether the action asks "are you sure":
  *
- *   Approve — a confirmation dialog.
- *   Reject  — one click, no dialog, no reason asked for.
+ *   Approve  — a confirmation dialog.
+ *   Complete — a confirmation dialog.
+ *   Reject   — one click, no dialog, no reason asked for.
  *
  * Approve used to ask for a shared password instead. That password was the
  * whole authorisation control when there was no sign-in; now that accounts
@@ -30,12 +31,24 @@ import { buttonClass, cn } from '@/components/ui';
  */
 
 function ActionIcon({ action }: { action: string }) {
-  return action === 'approve' ? (
-    <Check size={16} aria-hidden />
-  ) : (
-    <X size={16} aria-hidden />
-  );
+  if (action === 'approve') return <Check size={16} aria-hidden />;
+  if (action === 'complete') return <PackageCheck size={16} aria-hidden />;
+  return <X size={16} aria-hidden />;
 }
+
+/**
+ * What the confirmation dialog says, per action.
+ *
+ * Approve and Complete are both one-way, but they are one-way about different
+ * things, and a dialog that says "this clears it for purchase" over a button
+ * that records a delivery is worse than no dialog at all — it is the sentence
+ * somebody reads instead of thinking.
+ */
+const CONFIRM_COPY: Record<string, (actorName: string) => string> = {
+  approve: (who) => `This clears it for purchase and cannot be undone. Recorded against ${who}.`,
+  complete: (who) =>
+    `Only once the material has arrived and been checked. This closes the indent for good — recorded against ${who}.`,
+};
 
 /** The button inside the dialog, which carries out the confirmed action. */
 function ConfirmButton({ rule }: { rule: TransitionRule }) {
@@ -203,8 +216,7 @@ export function DecideButtons({
               {active.label} {indentNo ?? 'this indent'}?
             </h2>
             <p className="mt-1 text-sm text-muted">
-              This clears it for purchase and cannot be undone. Recorded against{' '}
-              {actorName}.
+              {(CONFIRM_COPY[active.action] ?? CONFIRM_COPY.approve)(actorName)}
             </p>
 
             <form action={formAction} className="mt-5 flex flex-col gap-4">

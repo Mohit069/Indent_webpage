@@ -3,9 +3,15 @@ import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { createHash } from 'node:crypto';
 import {
+  actionHint,
   allowedActions,
+  availableActions,
   findTransition,
+  isAwaitingMaterial,
+  isCompleted,
   requiredPermission,
+  STAGE_LABELS,
+  STATUS_LABELS,
   TRANSITIONS,
 } from '../src/lib/workflow';
 import { can, permissionsFor, type Principal } from '../src/lib/rbac';
@@ -381,7 +387,7 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\nWorkflow shape');
   // -------------------------------------------------------------------------
-  check('there are exactly three actions', TRANSITIONS.length === 3,
+  check('there are exactly four actions', TRANSITIONS.length === 4,
     TRANSITIONS.map((t) => t.action).join(', '));
   check('a draft can be submitted', Boolean(findTransition('submit', 'DRAFT')));
   check('a submitted indent can be approved',
@@ -394,6 +400,93 @@ async function main() {
     !findTransition('approve', 'REJECTED'));
   check('a draft cannot be approved before it is submitted',
     !findTransition('approve', 'DRAFT'));
+
+  // -------------------------------------------------------------------------
+  console.log('\nCompletion — the material actually turning up');
+  // -------------------------------------------------------------------------
+  /*
+   * Approval is not the end of an indent. The material has to reach the store
+   * and be checked against the sheet, which on paper was recorded by writing
+   * "completed" across the foot of the form. That step is now a transition.
+   *
+   * CLOSED and its CLOSE event were already in the database enum, reserved for
+   * the purchase module and never issued, so this needed no migration — which
+   * also means these checks are guarding a state that older rows could in
+   * principle hold. None do; nothing has ever written one.
+   */
+  check('an approved indent can be marked completed',
+    Boolean(findTransition('complete', 'APPROVED')));
+  check('it lands in CLOSED', findTransition('complete', 'APPROVED')!.to === 'CLOSED');
+  check('and records a CLOSE event',
+    findTransition('complete', 'APPROVED')!.stage === 'CLOSE');
+
+  /*
+   * The two ends of the one-way street. Nothing may skip approval on its way to
+   * completed — a finished indent with no approval in its history would be a
+   * purchase nobody authorised — and nothing comes back out of CLOSED.
+   */
+  check('an indent still awaiting approval cannot be completed',
+    !findTransition('complete', 'PENDING_APPROVAL'));
+  check('nor can a draft', !findTransition('complete', 'DRAFT'));
+  check('nor can a rejected one', !findTransition('complete', 'REJECTED'));
+  check('a completed indent cannot be completed twice',
+    !findTransition('complete', 'CLOSED'));
+  check('and nothing at all can be done to it afterwards',
+    availableActions('CLOSED').length === 0,
+    availableActions('CLOSED').map((a) => a.action).join(', '));
+
+  check('completing asks for confirmation — it cannot be undone',
+    findTransition('complete', 'APPROVED')!.confirm);
+
+  /*
+   * The status is shown to people in their own words. "Closed" is the column's
+   * word for it; "Completed" is what gets written on the pad.
+   */
+  check('CLOSED reads as "Completed"', STATUS_LABELS.CLOSED === 'Completed');
+  check('and its event says the material was received',
+    STAGE_LABELS.CLOSE.toLowerCase().includes('received'));
+
+  check('approved is not treated as finished',
+    isAwaitingMaterial('APPROVED') && !isCompleted('APPROVED'));
+  check('completed is', isCompleted('CLOSED') && !isAwaitingMaterial('CLOSED'));
+
+  /*
+   * The hint under the buttons is built from the buttons on screen. It was a
+   * constant sentence about approving and rejecting, which would have been
+   * printed under a lone Mark completed button.
+   */
+  const completeRule = findTransition('complete', 'APPROVED')!;
+  const approveRule = findTransition('approve', 'PENDING_APPROVAL')!;
+  check('the hint under a lone complete button does not mention approving',
+    !actionHint([completeRule])!.toLowerCase().includes('approv'));
+  check('the hint under approve and reject still describes both',
+    /approv/i.test(actionHint([approveRule, findTransition('reject', 'PENDING_APPROVAL')!])!)
+    && /reject/i.test(actionHint([approveRule, findTransition('reject', 'PENDING_APPROVAL')!])!));
+  check('and there is no hint when there is nothing to do',
+    actionHint([]) === null);
+
+  /*
+   * The payload the button actually posts.
+   *
+   * The workflow can allow an action and rbac can grant it, and the request
+   * will still die at the schema if the enum was not widened — silently, as a
+   * field error on a form with nowhere to show it. That is exactly how Reject
+   * stayed broken while every rule about it was correct.
+   */
+  const completePayload = transitionSchema.safeParse({
+    indentId: '11111111-1111-4111-8111-111111111111',
+    action: 'complete',
+    returnTo: '/indents',
+  });
+  check('a complete payload is accepted by the schema', completePayload.success,
+    completePayload.success ? '' : completePayload.error.issues[0]?.message);
+  check('and it needs no password either',
+    completePayload.success && !('password' in completePayload.data));
+  check('an invented action is still refused',
+    !transitionSchema.safeParse({
+      indentId: '11111111-1111-4111-8111-111111111111',
+      action: 'unapprove',
+    }).success);
 
   // -------------------------------------------------------------------------
   console.log('\nConfirmation, and what replaced the shared password');
@@ -531,6 +624,8 @@ async function main() {
   check('rejecting needs the reject permission',
     requiredPermission('reject') === 'indent:reject');
   check('submitting needs no decision permission', requiredPermission('submit') === null);
+  check('completing needs the complete permission',
+    requiredPermission('complete') === 'indent:complete');
 
   // --- the policy itself ---------------------------------------------------
   check('a Super Admin may approve', can(superAdmin, 'indent:approve'));
@@ -542,6 +637,19 @@ async function main() {
   check('an HOD may NOT manage users', !can(hod, 'user:manage'));
   check('an HOD may NOT see other departments', !can(hod, 'indent:view:all'));
   check('an HOD may raise an indent', can(hod, 'indent:create'));
+
+  /*
+   * The split that makes completion safe to give away.
+   *
+   * An HOD confirms the delivery because they are the one standing in front of
+   * it, and that is a statement of fact. It must not drag approval along with
+   * it — the separation between asking for something and authorising it is the
+   * point of the whole structure, and it would be undone by one over-broad
+   * grant here rather than by anything anyone typed.
+   */
+  check('an HOD may mark their material received', can(hod, 'indent:complete'));
+  check('but that does not let them approve', !can(hod, 'indent:approve'));
+  check('a Super Admin may also complete', can(superAdmin, 'indent:complete'));
 
   check('Purchase may NOT approve', !can(purchase, 'indent:approve'));
   check('Purchase may see approved indents', can(purchase, 'indent:view:all'));
@@ -561,7 +669,7 @@ async function main() {
     can({ role: 'SUPER_ADMIN', canApprove: false, canReject: false }, 'indent:approve'));
 
   // --- what that means for the buttons -------------------------------------
-  const names = (s: 'PENDING_APPROVAL' | 'DRAFT', p: Principal | null) =>
+  const names = (s: 'PENDING_APPROVAL' | 'DRAFT' | 'APPROVED', p: Principal | null) =>
     allowedActions(s, p).map((a) => a.action).sort().join(',');
 
   check('a Super Admin sees both decisions',
@@ -572,6 +680,15 @@ async function main() {
   check('and nobody signed out sees any', names('PENDING_APPROVAL', null) === '');
 
   check('an HOD may still submit their own draft', names('DRAFT', hod) === 'submit');
+
+  check('an HOD sees Mark completed on an approved indent',
+    names('APPROVED', hod) === 'complete');
+  check('so does a Super Admin', names('APPROVED', superAdmin) === 'complete');
+  check('Purchase does not — they receive stock, they do not sign for it',
+    names('APPROVED', purchase) === '');
+  check('and nobody signed out does', names('APPROVED', null) === '');
+  check('an HOD sees nothing on an indent still awaiting approval',
+    names('PENDING_APPROVAL', hod) === '');
 
   check('permissions cannot conjure an action the state forbids',
     names('DRAFT', superAdmin) === 'submit');

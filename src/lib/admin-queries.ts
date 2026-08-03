@@ -41,6 +41,16 @@ export interface DashboardStats {
   rejectedToday: number;
   totalDrafts: number;
   criticalPending: number;
+  /**
+   * Approved, but nobody has confirmed the material turned up.
+   *
+   * The number worth watching. Approval is quick and visible; delivery is slow
+   * and invisible, so this is where indents quietly pile up, and before there
+   * was a completion step it was not a number anybody could have asked for.
+   */
+  awaitingMaterial: number;
+  /** Delivered, checked, finished. */
+  completed: number;
   /** Mean hours from submit to approval, or null when nothing has been
    *  approved yet — which is different from "zero hours". */
   avgApprovalHours: number | null;
@@ -105,6 +115,11 @@ export async function dashboardStats(): Promise<DashboardStats> {
     rejectedToday: byStage.get('REJECT') ?? 0,
     totalDrafts: byStatus.get('DRAFT') ?? 0,
     criticalPending: critical?.n ?? 0,
+    // Both read from the same status roll-up already fetched above — an indent
+    // sits in APPROVED only until somebody completes it, so the two never
+    // double-count.
+    awaitingMaterial: byStatus.get('APPROVED') ?? 0,
+    completed: byStatus.get('CLOSED') ?? 0,
     avgApprovalHours: avg === null || avg === undefined ? null : Number(avg),
   };
 }

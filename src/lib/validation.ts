@@ -235,7 +235,7 @@ export function indentInputFromForm(formData: FormData, lines: unknown) {
  */
 export const transitionSchema = z.object({
   indentId: uuid,
-  action: z.enum(['submit', 'approve', 'reject']),
+  action: z.enum(['submit', 'approve', 'reject', 'complete']),
   /*
    * No `password` field.
    *

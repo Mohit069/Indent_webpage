@@ -27,6 +27,17 @@ export type Permission =
   | 'indent:view:all'
   | 'indent:approve'
   | 'indent:reject'
+  /*
+   * Marking an approved indent finished, once the material has actually arrived
+   * and been checked at the store.
+   *
+   * Separate from `indent:approve` on purpose, because it answers a different
+   * question and is answered by a different person: approval is "should we buy
+   * this", completion is "did we get it". The HOD who raised it is the one
+   * standing in front of the delivery, so it is theirs — it is the only thing
+   * they may do to an indent after submitting it.
+   */
+  | 'indent:complete'
   // Administration
   | 'user:manage'
   | 'department:manage'
@@ -54,6 +65,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'indent:view:all',
     'indent:approve',
     'indent:reject',
+    'indent:complete',
     'user:manage',
     'department:manage',
     'masters:manage',
@@ -66,6 +78,10 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'indent:create',
     'indent:submit',
     'indent:view:own',
+    // The receiving end: confirming the material turned up. Granted here and
+    // not `indent:approve`, which is the whole point of the split — an HOD may
+    // say "this arrived", never "this may be bought".
+    'indent:complete',
     // Explicitly absent: approve, reject, and any sight of another
     // department's indents.
   ],
@@ -178,6 +194,6 @@ export const ROLE_LABELS: Record<UserRole, string> = {
  *  Users screen so nobody has to guess what they are granting. */
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   SUPER_ADMIN: 'Approves and rejects indents, manages users and departments, sees everything.',
-  HOD: 'Raises indents for their department and tracks them. Cannot approve.',
+  HOD: 'Raises indents for their department, tracks them, and marks them completed once the material arrives. Cannot approve.',
   PURCHASE: 'Sees approved indents and handles purchase orders. Cannot approve.',
 };

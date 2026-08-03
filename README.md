@@ -18,8 +18,8 @@ application decides a permission. Adding a fourth role is one entry there.
 
 | Role | Can |
 |---|---|
-| **Super Admin** | Approve, reject, see every department, manage users and departments, reports, activity log, password resets |
-| **HOD** | Raise indents and track them. **Cannot** approve or reject. |
+| **Super Admin** | Approve, reject, mark completed, see every department, manage users and departments, reports, activity log, password resets |
+| **HOD** | Raise indents, track them, and mark them completed once the material arrives. **Cannot** approve or reject. |
 | **Purchase Team** | See approved indents, and the purchase side when that module lands. **Cannot** approve. |
 
 No email is special-cased in code. Saurabh is seeded as the first Super Admin by
@@ -83,17 +83,26 @@ who acted at every step, so nothing else has to change.
 ## How it works
 
 ```
-DRAFT ──submit──► AWAITING APPROVAL ──approve──► APPROVED
+DRAFT ──submit──► AWAITING APPROVAL ──approve──► APPROVED ──complete──► COMPLETED
                                     \─reject───► REJECTED
 ```
 
-Three actions, and that is all. Submit is open; Approve and Reject need the
-password.
+Four actions. Submit is open to anyone who may raise an indent; Approve and
+Reject need `indent:approve` / `indent:reject`; Complete needs
+`indent:complete`, which the HOD holds and which does **not** carry approval
+with it.
+
+**Approved is not finished.** The material still has to reach the store and be
+checked against the sheet — on the pad, that was somebody writing "completed"
+across the foot of the form. Until that is recorded, the indent sits in
+APPROVED, and an indent approved a fortnight ago that never arrived is the
+failure this stage exists to make visible. `CLOSED` in the database is what the
+screens call **Completed**.
 
 | Screen | What it is for |
 |---|---|
 | **New Indent** | Raise one. Department, requester, items, quantities. |
-| **Indents** | Every indent, approved or not, with **Approve** and **Reject** on the row. Filter by status, department or free text. |
+| **Indents** | Every indent at any stage. The tiles across the top are the tabs — awaiting decision, awaiting material, completed, drafts, rejected. |
 | **Settings** | People, departments, units, item master |
 
 An indent's own page shows the same buttons, plus the full item list, the
@@ -365,6 +374,7 @@ structurally cannot:
 | `npm run check:auth` | the guard over HTTP: every route refuses an anonymous request, a valid session is accepted, revoking one locks the browser out at once, a forged cookie is refused |
 | `npm run check:pages` | every route renders as a signed-in Super Admin. Added after a JavaScript `Date` interpolated into a raw `sql` fragment compiled, passed every test, and threw the moment anybody opened `/admin` — invisible to both the type checker and to a suite that exercises libraries rather than routes |
 | `npm run check:reject` | above |
+| `npm run check:complete` | the completion step end to end, on fixtures it creates and deletes: a Super Admin closes an approved indent, an HOD closes one too, and the same HOD is refused when it posts `approve` or tries to complete something nobody approved. Two accounts on purpose — they arrive through different branches of the permission check, so neither proves the other |
 
 ---
 

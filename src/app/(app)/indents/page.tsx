@@ -2,6 +2,7 @@ import { FileText, Plus, Search } from 'lucide-react';
 import { listDepartments, listIndents, statusCounts } from '@/lib/queries';
 import { actorSnapshot, getActor } from '@/lib/actor';
 import { OPEN_STATUSES } from '@/lib/workflow';
+import { can, canAny } from '@/lib/rbac';
 import { IndentTable } from '@/components/indent-table';
 import { DecisionToast } from '@/components/decision-toast';
 import {
@@ -20,11 +21,28 @@ import type { IndentStatus } from '@/db/schema';
 export const dynamic = 'force-dynamic';
 
 /*
- * Every indent, approved or not, with Approve and Reject on the row.
+ * Every indent, at whatever stage it has reached.
  *
  * There is no separate queue screen: this one list, filtered, is the whole of
- * the app besides raising a new indent.
+ * the app besides raising a new indent — which is why the tiles above it are
+ * links rather than decoration. They are the tabs.
  */
+
+/**
+ * Statuses this page will filter by.
+ *
+ * Compared against a Postgres enum, so a value from the URL that is not one of
+ * these has to become "no filter" rather than reach the query — Postgres
+ * refuses the comparison outright and the page would 500 on a hand-edited link.
+ * `find` rather than `includes`, so it narrows to the union on the way out.
+ */
+const FILTERABLE = [
+  'DRAFT',
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'CLOSED',
+  'REJECTED',
+] as const satisfies readonly IndentStatus[];
 
 export default async function IndentsPage({
   searchParams,
@@ -38,7 +56,9 @@ export default async function IndentsPage({
   }>;
 }) {
   const params = await searchParams;
-  const statusFilter = params.status as IndentStatus | undefined;
+  const statusFilter: IndentStatus | undefined = FILTERABLE.find(
+    (s) => s === params.status,
+  );
 
   // "Awaiting" covers the legacy in-between states too, so nothing is stranded.
   const statuses: IndentStatus[] | undefined =
@@ -67,6 +87,9 @@ export default async function IndentsPage({
   const open = OPEN_STATUSES.reduce((sum, s) => sum + (counts[s] ?? 0), 0);
   const filtered = Boolean(params.q || statusFilter || params.dept);
 
+  const canDecide = canAny(deciding, ['indent:approve', 'indent:reject']);
+  const canComplete = can(deciding, 'indent:complete');
+
   return (
     <div className="flex flex-col gap-6">
       <DecisionToast decided={params.decided} indentNo={params.no} />
@@ -74,7 +97,7 @@ export default async function IndentsPage({
       <PageHeader
         breadcrumbs={[{ label: 'Purchase', href: '/indents' }, { label: 'Indents' }]}
         title="Indents"
-        description="Every indent raised, approved or not. Approve and Reject are on the row."
+        description="Every indent raised — waiting, approved, delivered or refused. Open one to act on it."
         actions={
           <ButtonLink href="/indents/new" tone="primary">
             <Plus size={16} aria-hidden />
@@ -83,19 +106,34 @@ export default async function IndentsPage({
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/*
+        Five tiles, in the order an indent actually passes through them: waiting
+        for a decision, approved but not yet delivered, delivered and finished —
+        with drafts and rejections at the ends as the two ways out.
+
+        "Awaiting material" is the one that did not exist before. It is the tile
+        worth looking at on a Monday morning: an indent approved a fortnight ago
+        and still sitting there is the failure this stage was added to surface,
+        and it was previously indistinguishable from one approved an hour ago.
+      */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatTile
           label="Awaiting decision"
           value={awaiting}
           accent
           href="/indents?status=PENDING_APPROVAL"
         />
-        <StatTile label="Drafts" value={counts.DRAFT ?? 0} href="/indents?status=DRAFT" />
         <StatTile
-          label="Approved"
+          label="Awaiting material"
           value={counts.APPROVED ?? 0}
           href="/indents?status=APPROVED"
         />
+        <StatTile
+          label="Completed"
+          value={counts.CLOSED ?? 0}
+          href="/indents?status=CLOSED"
+        />
+        <StatTile label="Drafts" value={counts.DRAFT ?? 0} href="/indents?status=DRAFT" />
         <StatTile
           label="Rejected"
           value={counts.REJECTED ?? 0}
@@ -132,7 +170,8 @@ export default async function IndentsPage({
               <option value="">All</option>
               <option value="DRAFT">Draft</option>
               <option value="PENDING_APPROVAL">Awaiting approval</option>
-              <option value="APPROVED">Approved</option>
+              <option value="APPROVED">Approved — awaiting material</option>
+              <option value="CLOSED">Completed</option>
               <option value="REJECTED">Rejected</option>
             </select>
           </label>
@@ -191,11 +230,26 @@ export default async function IndentsPage({
           <IndentTable rows={rows} actorName={actor.name} deciding={deciding} />
         )}
 
-        {open > 0 && rows.length > 0 && (
+        {/*
+          `can`, not the two boolean columns this used to read.
+          `deciding.canApprove` is the per-person grant only — a Super Admin,
+          who approves by virtue of the role, has it set to false and was being
+          told they could not decide anything. The note now asks the same
+          question the buttons do.
+        */}
+        {rows.length > 0 && (canDecide || canComplete) && (
           <CardNote>
-            {deciding?.canApprove || deciding?.canReject
-              ? 'Approving asks you to confirm. Reject takes effect on the click, with no confirmation.'
-              : `${actor.name} is not set up to decide indents, so no decision buttons are shown. Permissions are granted under Settings → People.`}
+            {canDecide &&
+              'Approving asks you to confirm. Reject takes effect on the click, with no confirmation. '}
+            {canComplete &&
+              'Mark completed once the material has reached the store and been checked — it closes the indent for good.'}
+          </CardNote>
+        )}
+
+        {rows.length > 0 && !canDecide && !canComplete && open > 0 && (
+          <CardNote>
+            {actor.name} is not set up to decide indents, so no decision buttons are
+            shown. Permissions are granted under Settings → People.
           </CardNote>
         )}
       </Card>
