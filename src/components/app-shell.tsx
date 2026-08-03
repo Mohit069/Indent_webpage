@@ -130,7 +130,7 @@ export function AppShell({
                 Purchase Indent
               </p>
               <p className="truncate text-xs leading-tight text-muted">
-                Marudhar Quartz
+                Artizia Quartz
               </p>
             </div>
           )}

@@ -33,7 +33,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     'user:manage',
     'department:manage',
     'report:view',
-    'activity:view',
     'masters:manage',
   ]);
 

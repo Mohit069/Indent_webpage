@@ -2,7 +2,6 @@ import 'server-only';
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
 import {
-  activityLog,
   departments,
   indentEvents,
   indentLines,
@@ -231,53 +230,15 @@ export async function listIndentsPaged(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Activity log
-// ---------------------------------------------------------------------------
-
-export async function listActivityPaged(
-  page = 1,
-  pageSize = 50,
-  filters: { actorId?: string; entityType?: string } = {},
-): Promise<Page<typeof activityLog.$inferSelect>> {
-  const clauses = [];
-  if (filters.actorId) clauses.push(eq(activityLog.actorId, filters.actorId));
-  if (filters.entityType) clauses.push(eq(activityLog.entityType, filters.entityType));
-  const where = clauses.length ? and(...clauses) : undefined;
-
-  const safePage = Math.max(1, Math.floor(page));
-
-  const [rows, totalRow] = await Promise.all([
-    db
-      .select()
-      .from(activityLog)
-      .where(where)
-      .orderBy(desc(activityLog.createdAt))
-      .limit(pageSize)
-      .offset((safePage - 1) * pageSize),
-
-    db.select({ n: count() }).from(activityLog).where(where),
-  ]);
-
-  const total = totalRow[0]?.n ?? 0;
-
-  return {
-    rows,
-    total,
-    page: safePage,
-    pageSize,
-    pageCount: Math.max(1, Math.ceil(total / pageSize)),
-  };
-}
-
-/** The last few entries, for the dashboard's Recent Activity card. */
-export async function recentActivity(limit = 8) {
-  return db
-    .select()
-    .from(activityLog)
-    .orderBy(desc(activityLog.createdAt))
-    .limit(limit);
-}
+/*
+ * The activity-log reader lived here — listActivityPaged and recentActivity.
+ *
+ * The screen that displayed them has been removed, so nothing calls them. The
+ * *writes* deliberately stay: activity_log is an append-only record of who
+ * approved what, who created which account, and which sign-ins failed. Deleting
+ * the reader loses a screen; deleting the record loses evidence that cannot be
+ * reconstructed afterwards. It is one query away if it is ever wanted.
+ */
 
 // ---------------------------------------------------------------------------
 // Users and departments

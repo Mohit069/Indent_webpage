@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Activity,
   BarChart3,
   Building2,
   ClipboardCheck,
@@ -83,12 +82,6 @@ export function AdminShell({
     },
     { href: '/admin/reports', label: 'Reports', icon: BarChart3, permission: 'report:view' },
     {
-      href: '/admin/activity',
-      label: 'Activity Log',
-      icon: Activity,
-      permission: 'activity:view',
-    },
-    {
       href: '/admin/masters/items',
       label: 'Master Data',
       icon: Settings,
@@ -132,7 +125,7 @@ export function AdminShell({
               <p className="truncate text-sm font-semibold leading-tight text-ink">
                 Administration
               </p>
-              <p className="truncate text-xs leading-tight text-muted">Marudhar Quartz</p>
+              <p className="truncate text-xs leading-tight text-muted">Artizia Quartz</p>
             </div>
           )}
         </div>

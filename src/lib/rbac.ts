@@ -32,7 +32,6 @@ export type Permission =
   | 'department:manage'
   | 'masters:manage'
   | 'report:view'
-  | 'activity:view'
   // Purchase side. The screens are not built yet; the permissions are, so the
   // role exists in full the day the module lands.
   | 'po:create'
@@ -59,7 +58,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     'department:manage',
     'masters:manage',
     'report:view',
-    'activity:view',
     'po:create',
     'po:update',
     'material:receive',

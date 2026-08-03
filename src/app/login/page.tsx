@@ -40,7 +40,7 @@ export default async function LoginPage({
           </span>
           <div>
             <h1 className="text-lg font-semibold text-ink">Purchase Indent</h1>
-            <p className="mt-0.5 text-sm text-muted">Marudhar Quartz Surfaces</p>
+            <p className="mt-0.5 text-sm text-muted">Artizia Quartz</p>
           </div>
         </div>
 

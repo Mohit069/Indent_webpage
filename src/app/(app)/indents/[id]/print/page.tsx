@@ -55,9 +55,17 @@ export default async function PrintIndentPage({
 
       <div className="print-sheet border border-line bg-white p-6 text-black shadow-[var(--shadow-raised)] print:shadow-none">
         <div className="border-b-2 border-black pb-3 text-center">
-          <h1 className="text-base font-bold uppercase tracking-wide">
-            Marudhar Quartz Surfaces Private Limited
+          <h1 className="text-lg font-bold uppercase tracking-[0.28em]">
+            Artizia Quartz
           </h1>
+          {/*
+            The registered entity, kept under the brand rather than replaced by
+            it. This sheet is a purchase document — an auditor or a supplier
+            reads the legal name, not the trading name.
+          */}
+          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            Marudhar Quartz Surfaces Private Limited
+          </p>
           <p className="mx-auto mt-1 max-w-[150mm] text-[9px] leading-snug">
             Plot No.- PA 008-020-023, Mahindra World City Jaipur Ltd, Multi Product SEZ,
             PO- Mahindra World City, Village- Bhambhoriya, Tehsil- Sanganer, Jaipur,

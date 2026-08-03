@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
 import {
-  Activity,
   ArrowRight,
   CheckCircle2,
   Clock,
@@ -10,7 +9,7 @@ import {
   Timer,
   XCircle,
 } from 'lucide-react';
-import { dashboardStats, listIndentsPaged, recentActivity } from '@/lib/admin-queries';
+import { dashboardStats, listIndentsPaged } from '@/lib/admin-queries';
 import { requirePermission } from '@/lib/guard';
 import { Card, CardHeader, EmptyState, PageHeader, PriorityMark } from '@/components/ui';
 
@@ -88,10 +87,9 @@ function Tile({
 export default async function AdminDashboard() {
   await requirePermission('indent:view:all');
 
-  const [stats, waiting, activity] = await Promise.all([
+  const [stats, waiting] = await Promise.all([
     dashboardStats(),
     listIndentsPaged({ statuses: ['PENDING_APPROVAL'] }, 1, 6),
-    recentActivity(8),
   ]);
 
   return (
@@ -140,7 +138,7 @@ export default async function AdminDashboard() {
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+      <div className="grid gap-6">
         <Card>
           <CardHeader
             title="Waiting for approval"
@@ -192,41 +190,6 @@ export default async function AdminDashboard() {
           )}
         </Card>
 
-        <Card>
-          <CardHeader
-            title="Recent activity"
-            description="Every action, most recent first."
-            action={
-              <Link
-                href="/admin/activity"
-                className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-              >
-                Full log
-                <ArrowRight size={13} aria-hidden />
-              </Link>
-            }
-          />
-
-          {activity.length === 0 ? (
-            <EmptyState
-              icon={<Activity size={20} aria-hidden />}
-              title="Nothing recorded yet"
-              message="Actions appear here as people use the system."
-            />
-          ) : (
-            <ul className="divide-y divide-line">
-              {activity.map((entry) => (
-                <li key={entry.id} className="flex flex-col gap-0.5 px-5 py-3">
-                  <p className="text-sm leading-snug text-ink">{entry.summary}</p>
-                  <p className="text-xs text-muted">
-                    {entry.actorNameSnapshot} ·{' '}
-                    {formatDistanceToNow(entry.createdAt, { addSuffix: true })}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
       </div>
     </div>
   );

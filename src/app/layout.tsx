@@ -27,7 +27,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Purchase Indent · Marudhar Quartz',
+  title: 'Purchase Indent · Artizia Quartz',
   description: 'Raise, approve and track purchase indents.',
 };
 
