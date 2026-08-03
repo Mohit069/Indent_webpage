@@ -194,7 +194,7 @@ export default async function IndentsPage({
         {open > 0 && rows.length > 0 && (
           <CardNote>
             {deciding?.canApprove || deciding?.canReject
-              ? 'Approving asks for the shared password. Reject takes effect on the click, with no confirmation.'
+              ? 'Approving asks you to confirm. Reject takes effect on the click, with no confirmation.'
               : `${actor.name} is not set up to decide indents, so no decision buttons are shown. Permissions are granted under Settings → People.`}
           </CardNote>
         )}

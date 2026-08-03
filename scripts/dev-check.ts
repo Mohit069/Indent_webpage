@@ -523,11 +523,9 @@ async function main() {
     !approvedOnly.body.includes('>Reject<'));
 
   /*
-   * The password itself is proved in scripts/verify.ts, which exercises
-   * `checkActionPassword` — the same function transitionIndent calls before it
-   * will move anything. It is not re-tested over HTTP here because invoking a
-   * Next.js server action from outside the browser means scraping its generated
-   * action id out of a client chunk, which breaks on every build.
+   * There is no longer a shared password to test. Who may approve is decided by
+   * rbac.ts and proved in scripts/verify.ts; that a rejection actually lands is
+   * proved end to end over HTTP by scripts/reject-check.ts.
    */
 
   // --- the confirmation people actually see -------------------------------

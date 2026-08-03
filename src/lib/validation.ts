@@ -236,12 +236,14 @@ export function indentInputFromForm(formData: FormData, lines: unknown) {
 export const transitionSchema = z.object({
   indentId: uuid,
   action: z.enum(['submit', 'approve', 'reject']),
-  /** Required for approve. Checked server-side, never in the browser. */
-  password: z
-    .string()
-    .max(200)
-    .optional()
-    .or(z.literal('').transform(() => undefined)),
+  /*
+   * No `password` field.
+   *
+   * Approve used to carry a shared password — the whole authorisation control
+   * back when there was no sign-in. Real accounts replaced it: the server knows
+   * who is asking, and rbac decides whether they may. Asking that person for a
+   * second secret everyone already shares protected nothing.
+   */
   /**
    * Where to go once it worked, so the confirmation lands on the page you were
    * already on.

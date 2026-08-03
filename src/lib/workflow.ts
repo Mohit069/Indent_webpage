@@ -10,9 +10,9 @@ import { can, type Permission, type Principal } from '@/lib/rbac';
  *   DRAFT --submit--> PENDING_APPROVAL --approve--> APPROVED
  *                                     \--reject---> REJECTED
  *
- * Who may do each is decided by rbac.ts. Approve additionally asks for the
- * shared password — which is now a second factor on the one action that commits
- * money, rather than the only thing standing in front of it.
+ * Who may do each is decided by rbac.ts, and that is the whole of the
+ * authorisation. Approve additionally asks "are you sure", which is a guard
+ * against the wrong button, not against the wrong person.
  *
  * The wider set of states (with-purchase, returned, procured, withdrawn) still
  * exists in the database enum so old rows keep resolving, but nothing in the UI
@@ -30,13 +30,20 @@ export interface TransitionRule {
   /** Label shown on the button that performs it. */
   label: string;
   /**
-   * Whether the shared password is required to perform it.
+   * Whether performing it asks "are you sure" first.
    *
-   * This also decides the shape of the control: an action that needs the
-   * password opens a dialog to ask for it, and one that does not is a single
-   * click that acts immediately.
+   * This was `requiresPassword`, and the password it referred to was a shared
+   * secret — the whole authorisation control back when there was no sign-in and
+   * anything else would have let any visitor approve a purchase. Real accounts
+   * replaced it: the server now knows who is asking, and asking that person for
+   * a second password everyone already shares adds nothing.
+   *
+   * A confirmation survives, on Approve only. Not as security — the permission
+   * check is the security — but because Approve and Reject sit next to each
+   * other, approving commits money, and it is the one of the two that cannot be
+   * walked back by raising the indent again.
    */
-  requiresPassword: boolean;
+  confirm: boolean;
   tone: 'primary' | 'neutral' | 'danger';
 }
 
@@ -47,7 +54,7 @@ export const TRANSITIONS: TransitionRule[] = [
     to: 'PENDING_APPROVAL',
     stage: 'SUBMIT',
     label: 'Submit Indent',
-    requiresPassword: false,
+    confirm: false,
     tone: 'primary',
   },
   {
@@ -58,7 +65,7 @@ export const TRANSITIONS: TransitionRule[] = [
     to: 'APPROVED',
     stage: 'FINAL_APPROVAL',
     label: 'Approve',
-    requiresPassword: true,
+    confirm: true,
     tone: 'primary',
   },
   {
@@ -68,15 +75,15 @@ export const TRANSITIONS: TransitionRule[] = [
     stage: 'REJECT',
     label: 'Reject',
     /*
-     * One click, no password and no written reason.
+     * One click, no confirmation and no written reason.
      *
      * The asymmetry with Approve is deliberate rather than an oversight:
      * approving commits money, rejecting does not, and the person who raised
-     * the indent can raise it again. What guards this now is the canReject
+     * the indent can raise it again. What guards this is the indent:reject
      * permission — the button is only shown to, and only accepted from,
      * someone who holds it.
      */
-    requiresPassword: false,
+    confirm: false,
     tone: 'danger',
   },
 ];

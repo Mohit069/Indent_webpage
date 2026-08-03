@@ -10,54 +10,69 @@ The design and the reasoning behind it are in [docs/ARCHITECTURE.md](docs/ARCHIT
 
 ---
 
-## There is no sign-in
+## Accounts and roles
 
-Deliberate. This is an internal tool shared by two or three people who all do
-every job, so there are **no accounts, no passwords, no sessions and no roles**.
-Anyone who can reach the page can raise an indent, acknowledge it, approve it, and
-edit the master data.
+Everyone signs in with an email address and a password. There are three roles,
+and one table in `src/lib/rbac.ts` is the whole policy — nothing else in the
+application decides a permission. Adding a fourth role is one entry there.
 
-The only identity in the app is **who this computer is set to**, asked once on
-first use and shown in the header thereafter. It decides whose name is stamped
-on the next action, so the printed indent's signature boxes carry a name the way
-the paper form does. It is a preference, not a credential — nothing verifies it,
-and changing it grants nothing.
+| Role | Can |
+|---|---|
+| **Super Admin** | Approve, reject, see every department, manage users and departments, reports, activity log, password resets |
+| **HOD** | Raise indents and track them. **Cannot** approve or reject. |
+| **Purchase Team** | See approved indents, and the purchase side when that module lands. **Cannot** approve. |
 
-Set each machine once: the purchase desk is the purchase officer, the director's
-laptop is the director. Then nobody has to remember to change a dropdown, which
-is the most likely real failure here — not fraud, but an indent printed under the
-wrong name.
+No email is special-cased in code. Saurabh is seeded as the first Super Admin by
+`npm run db:seed-admin`, but that is a row like any other, and a second one can
+be appointed from the Users screen without a deploy.
 
-### The one control: a shared password
+Two per-person flags, `canApprove` and `canReject`, sit on top of the role, for
+deputising someone while the approver is away. They are **additive only** — the
+policy unions them with the role's permissions and never subtracts, so clearing
+a checkbox cannot strip a Super Admin of something their role grants.
 
-**Approve and Reject ask for a password.** It is whatever you set
-`ACTION_PASSWORD` to — there is no default, and the app refuses to authorise
-anything until it has one. That is deliberate: a password written into the
-source is published the moment this repository is.
+### Where the rule is actually enforced
 
-Raising an indent is open to anyone. Deciding one is not — that is where money
-starts moving, so it is the one place with a gate. The password is checked on the
-server before anything is written; the browser dialog is only the prompt.
+`src/lib/guard.ts`. Every page and every action begins with a call into it.
 
-Change it by setting `ACTION_PASSWORD` in `.env` and restarting. No redeploy.
+Hiding a link or a button is a courtesy to whoever is looking at the screen; it
+is not the control. A server action is an HTTP endpoint, and anyone can post to
+one directly — so the answer is decided on the server, before anything is
+written, every time.
 
-It identifies nobody — the name recorded against the decision still comes from
-whoever the computer is set to. It separates "anyone who can open the page" from
-"anyone allowed to authorise a purchase", and nothing more.
+Sessions are rows in a table, not self-contained tokens. A JWT cannot be
+withdrawn before it expires, so disabling an account would leave that person
+signed in until it lapsed. A row can be deleted, which is what makes **Disable**
+and **Reset Password** take effect on the person's next click rather than
+eventually.
 
-> A password shared by three people is a password that ends up on a sticky note.
-> It stops a casual or accidental click, and someone who wanders onto the LAN. It
-> does not stop a determined insider, and it is not an audit trail. If you ever
-> need to prove *who* approved something, that needs accounts.
+Passwords are scrypt from `node:crypto`, salted per account. Not bcrypt or
+argon2: both are native modules that have to compile, which is a build failure
+waiting to happen on a host you do not control.
 
-**Two consequences worth being deliberate about:**
+### What replaced the shared password
 
-- **Do not expose this to the internet.** Keep it on the office LAN or behind a
-  VPN. There is nothing stopping a visitor from approving their own indent, or
-  deleting your item master.
+Approve used to ask for a password every approver shared. That was the whole
+authorisation control back when there was no sign-in — without it, any visitor
+could have approved a purchase.
+
+Accounts replaced it, and it is gone. Asking an authenticated person for a
+second secret that everybody already knows protected nothing, and a password
+shared by three people is a password that ends up on a sticky note.
+
+Approve still asks **"are you sure"**. That is a guard against the wrong button,
+not against the wrong person — Approve and Reject sit next to each other, and
+approving is the one of the two that cannot be undone by raising the indent
+again. Reject is a single click.
+
+### What this still does not give you
+
 - **The printed form still needs a wet signature.** Each signature box prints the
-  recorded name above a ruled line. The system says who *said* they approved it;
+  recorded name above a ruled line. The system records who approved it and when;
   the pen on the printout is what makes it binding.
+- **Nobody is ever deleted.** A person's name is on the history of every indent
+  they touched, and that foreign key has to keep resolving. "Remove" means
+  deactivate, which blocks sign-in immediately and ends their sessions.
 
 If the company grows past a handful of people, restoring accounts means adding a
 `people` password column and a session cookie — the audit trail already records
@@ -103,10 +118,20 @@ npm run db:seed           # units, departments, categories, placeholder people
 npm run dev               # http://localhost:3000
 ```
 
-Open it. There is nothing to sign in to.
+**Before you can sign in, create the first account:**
 
-**First thing to do:** go to **Settings → People** and replace the three
-placeholder names with the real people. Those names print on the indent.
+```bash
+npm run db:migrate      # apply pending migrations
+npm run db:seed-admin   # creates the first Super Admin, prints a password
+```
+
+It prints a generated password once, to the terminal, and flags the account to
+change it at first sign-in. Pass `ADMIN_PASSWORD=...` if you would rather choose
+one yourself.
+
+Then sign in and go to **Users** to add the heads of department. Each needs an
+email — that is their login — and a role. Their name and designation print on
+the indent.
 
 ### Two settings that matter
 
@@ -114,9 +139,9 @@ placeholder names with the real people. Those names print on the indent.
 |---|---|
 | `DATABASE_URL` | Any Postgres 14+. For Supabase, use the URI from Project Settings → Database. |
 | `INDENT_PREFIX` | Default `MQ/IND`. Issued numbers look like `MQ/IND/26-27/0001` and restart at 0001 each financial year, April to March. |
-| `ACTION_PASSWORD` | **No default.** Required to Approve or Reject; the app will not start authorising without it. |
 
-There is no `SESSION_SECRET` — nothing is signed, because there are no sessions.
+There is no `SESSION_SECRET`. Sessions are rows in a table and the cookie holds
+a random secret, so there is nothing to sign — and nothing to rotate or lose.
 
 ---
 
@@ -195,7 +220,6 @@ Then import the repository in Vercel and set these under
 | Variable | Value |
 |---|---|
 | `DATABASE_URL` | the hosted connection string — use the **pooled** one |
-| `ACTION_PASSWORD` | your Approve/Reject password. No default; nothing is authorised without it |
 | `INDENT_PREFIX` | `MQ/IND` |
 
 Use the pooler endpoint, not the direct one: every concurrent request on Vercel
@@ -204,16 +228,20 @@ connections quickly. `src/db/index.ts` detects a pooled URL (`pgbouncer=true`,
 or a `-pooler.` host) and turns off prepared statements accordingly, which
 transaction-mode poolers cannot serve.
 
-### Anything on a public URL has no door on it
+### On a public URL, the sign-in is the door
 
-With no authentication, the network *is* the access control. On an internal URL
-that is fine. On Vercel it is not: the deployment is reachable by anyone who has
-or guesses the address, and that means reading every indent, and raising and
-editing them. Only Approve and Reject are gated, by `ACTION_PASSWORD`.
+Every route redirects to `/login` without a session, so a public deployment is
+no longer wide open the way it was before accounts existed. What still deserves
+thought:
 
-So a public deployment is for trying the app out, not for running the business
-on. Before real indents go in, either put a password in front of the whole site
-or move it somewhere only the office can reach.
+- **Serve it over HTTPS.** The session cookie is marked `Secure` only when the
+  request arrived over https (read from `x-forwarded-proto`), because a browser
+  silently discards a `Secure` cookie sent over plain http — which would break
+  sign-in on a LAN address with no error anywhere. Vercel and any sensible
+  proxy set that header, so HTTPS gets the flag automatically.
+- **Set real passwords.** `db:seed-admin` prints one to a terminal, which means
+  it has been seen by whoever ran it. The forced change at first sign-in exists
+  for exactly that reason; do not skip it.
 
 Once it is on an internal URL, staff open it in any browser. On Android and iOS,
 **Add to Home Screen** makes it behave like an installed app.
@@ -306,18 +334,37 @@ the page, and Zod's `.optional()` accepts `undefined` but rejects `null`. A fiel
 deleted from the form therefore became a *required* field, failing under its own
 name — "deptRef is required", on a form with no such box.
 
-**One gap, stated plainly:** Approve and Reject are still proved at the function
-level rather than the transport level. They live in a dialog that only exists
-once JavaScript has run, so there is no no-JS form to post the way there is for
-the new-indent form. That covers both the shared password and the per-person
-permission: each is checked in `transitionIndent` before anything is written,
-and each is tested against the function that does the checking — but neither has
-been exercised by an HTTP request that skips the interface.
+That same trap has now caused three bugs, and the third pair were the worst of
+them because they were silent. Sign-in did nothing at all: the login form only
+renders `returnTo` when there is somewhere to return to, so on an ordinary visit
+the schema failed against a hidden field and the form had nowhere to show the
+error. Reject had been broken the same way the whole time — its form carries no
+password box, so `password` arrived as null and was refused before anything ran.
+One click, nothing happens, no message.
 
-Attempting it by lifting the Submit bar's action fields and re-pointing them at
-`action=approve` did not work; Next.js ignored the re-pointed request and simply
-re-rendered the page, so it proved nothing in either direction. It is recorded
-here so nobody mistakes that silence for a passing test.
+`formValue` / `formValues` / `formFlag` in `validation.ts` are now the only way
+this codebase reads a form field; there is no call to `formData.get()` anywhere
+in `src/` outside them. `verify.ts` checks every form-reading schema against a
+payload built the way its action builds it, with the optional fields genuinely
+absent — plus one check that reading `returnTo` raw would *still* be refused, so
+the test cannot be quietly neutered and stop guarding anything.
+
+**Approve and Reject are now proved at the transport level too.** The earlier
+attempt failed for two reasons that took a while to find: Next refuses a server
+action whose `Origin` header does not match the host, and these forms post as
+`multipart/form-data`, so a urlencoded body is silently never parsed. With both
+right, `npm run check:reject` drives the real endpoint end to end — 303, status
+`REJECTED`, one event, on a fixture it creates and deletes so it can never touch
+a real indent.
+
+Three further suites sit alongside it, each covering something the others
+structurally cannot:
+
+| | |
+|---|---|
+| `npm run check:auth` | the guard over HTTP: every route refuses an anonymous request, a valid session is accepted, revoking one locks the browser out at once, a forged cookie is refused |
+| `npm run check:pages` | every route renders as a signed-in Super Admin. Added after a JavaScript `Date` interpolated into a raw `sql` fragment compiled, passed every test, and threw the moment anybody opened `/admin` — invisible to both the type checker and to a suite that exercises libraries rather than routes |
+| `npm run check:reject` | above |
 
 ---
 
@@ -328,10 +375,17 @@ src/
 ├── db/schema.ts        Nine tables. The whole data model, commented.
 ├── lib/
 │   ├── workflow.ts     Every legal transition. The state machine, ungated.
-│   ├── actor.ts        The "acting as" cookie. Attribution, not authentication.
-│   ├── validation.ts   Zod schemas — one rule serves the form, the server, and the types.
+│   ├── rbac.ts         Who may do what. One table is the entire policy.
+│   ├── guard.ts        The gate every page and action calls first.
+│   ├── auth.ts         Sessions. Password hashing lives in password.ts.
+│   ├── password.ts     scrypt. Not server-only, so the seed script shares it.
+│   ├── actor.ts        Whose name goes on an action. Now reads the session.
+│   ├── activity.ts     The application-wide log. Append-only.
+│   ├── notify.ts       In-app notifications.
+│   ├── validation.ts   Zod schemas, and the only way a form field is read.
 │   ├── indent-no.ts    Financial-year numbering and the line-tamper hash.
-│   └── queries.ts      Reads. Nothing is scoped, because there are no users.
+│   ├── queries.ts      Reads for the requester's screens.
+│   └── admin-queries.ts Reads for the admin area — dashboard, lists, reports.
 ├── actions/            Server actions: indents, admin.
 ├── components/
 │   ├── ui.tsx          The design system. Every screen is built from this file.

@@ -1,9 +1,9 @@
 'use client';
 
-import { useActionState, useEffect, useId, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { useFormStatus } from 'react-dom';
-import { Eye, EyeOff, Check, X, Loader2 } from 'lucide-react';
+import { Check, X, Loader2 } from 'lucide-react';
 import { transitionIndent, type IndentActionState } from '@/actions/indents';
 import { shouldCloseAfter } from '@/lib/action-state';
 import type { TransitionRule } from '@/lib/workflow';
@@ -12,92 +12,22 @@ import { buttonClass, cn } from '@/components/ui';
 /*
  * Deciding an indent.
  *
- * Two shapes, chosen by whether the action needs the shared password:
+ * Two shapes, chosen by whether the action asks "are you sure":
  *
- *   Approve — opens a dialog, because a password has to be typed somewhere.
+ *   Approve — a confirmation dialog.
  *   Reject  — one click, no dialog, no reason asked for.
  *
- * The asymmetry is deliberate. Approving commits money; rejecting does not,
- * and the indent can be raised again. What stands behind Reject is the
- * canReject permission, checked on the server before anything is written.
+ * Approve used to ask for a shared password instead. That password was the
+ * whole authorisation control when there was no sign-in; now that accounts
+ * exist, rbac decides who may approve and the password protected nothing. The
+ * dialog survives without it because Approve and Reject sit side by side,
+ * approving commits money, and it is the one that cannot be undone by raising
+ * the indent again. That is a guard against the wrong button, not the wrong
+ * person.
  *
  * Used both inline on the indent list and on the indent's own page, so the two
  * behave identically — there is one way to decide an indent, not two.
  */
-
-/*
- * The password box, with a reveal toggle.
- *
- * Dots are the right default — this is a shared office machine and someone is
- * usually standing at the next desk. But a mistyped password that you cannot
- * see is guesswork, so the toggle is there for when you need it.
- *
- * The input is never remounted when it flips, only its `type` changes, so what
- * you have typed stays put. That also matters after a wrong password: the
- * dialog stays open with the attempt still in the box, ready to be corrected.
- */
-function PasswordField({ error }: { error?: string }) {
-  const [shown, setShown] = useState(false);
-  // One list page renders a DecideButtons per row, so the id has to be unique.
-  const fieldId = useId();
-  const errorId = `${fieldId}-error`;
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={fieldId} className="text-sm font-medium text-ink">
-        Password
-        <span className="ml-0.5 text-danger" aria-hidden>
-          *
-        </span>
-      </label>
-
-      <div className="relative">
-        <input
-          id={fieldId}
-          name="password"
-          type={shown ? 'text' : 'password'}
-          autoFocus
-          autoComplete="off"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          placeholder="Shared approval password"
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? errorId : undefined}
-          className={cn(
-            'h-11 w-full rounded-lg border bg-surface pl-3.5 pr-12 text-sm text-ink transition-[border-color,box-shadow] duration-150 placeholder:text-faint focus:outline-none',
-            error
-              ? 'border-danger focus:border-danger focus:ring-2 focus:ring-red-100'
-              : 'border-line-strong hover:border-gray-400 focus:border-primary focus:ring-2 focus:ring-[var(--primary-soft)]',
-          )}
-        />
-        <button
-          type="button"
-          onClick={() => setShown((s) => !s)}
-          aria-pressed={shown}
-          aria-controls={fieldId}
-          // Named for what pressing it does, not for the icon it happens to show.
-          aria-label={shown ? 'Hide password' : 'Show password'}
-          title={shown ? 'Hide password' : 'Show password'}
-          className="absolute inset-y-1 right-1 flex w-10 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-ink"
-        >
-          {shown ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
-        </button>
-      </div>
-
-      {error && (
-        <span
-          id={errorId}
-          role="alert"
-          className="flex items-center gap-1.5 text-xs font-medium text-danger"
-        >
-          <X size={13} aria-hidden />
-          {error}
-        </span>
-      )}
-    </div>
-  );
-}
 
 function ActionIcon({ action }: { action: string }) {
   return action === 'approve' ? (
@@ -107,7 +37,7 @@ function ActionIcon({ action }: { action: string }) {
   );
 }
 
-/** The button inside the dialog, which confirms a password-gated action. */
+/** The button inside the dialog, which carries out the confirmed action. */
 function ConfirmButton({ rule }: { rule: TransitionRule }) {
   const { pending } = useFormStatus();
   return (
@@ -224,7 +154,7 @@ export function DecideButtons({
       <div className="flex flex-col gap-1.5">
         <div className="flex flex-wrap gap-2">
           {actions.map((rule) =>
-            rule.requiresPassword ? (
+            rule.confirm ? (
               <button
                 key={rule.action}
                 type="button"
@@ -273,13 +203,12 @@ export function DecideButtons({
               {active.label} {indentNo ?? 'this indent'}?
             </h2>
             <p className="mt-1 text-sm text-muted">
-              This clears it for purchase. Recorded against {actorName}.
+              This clears it for purchase and cannot be undone. Recorded against{' '}
+              {actorName}.
             </p>
 
             <form action={formAction} className="mt-5 flex flex-col gap-4">
               {hidden(active.action)}
-
-              <PasswordField error={state.fieldErrors?.password} />
 
               {state.error && (
                 <p

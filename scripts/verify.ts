@@ -10,7 +10,6 @@ import {
 } from '../src/lib/workflow';
 import { can, permissionsFor, type Principal } from '../src/lib/rbac';
 import { hashPassword, normaliseEmail, verifyPassword } from '../src/lib/password';
-import { checkActionPassword } from '../src/lib/action-password';
 import { shouldCloseAfter } from '../src/lib/action-state';
 import {
   changePasswordSchema,
@@ -397,62 +396,51 @@ async function main() {
     !findTransition('approve', 'DRAFT'));
 
   // -------------------------------------------------------------------------
-  console.log('\nPassword gate');
+  console.log('\nConfirmation, and what replaced the shared password');
   // -------------------------------------------------------------------------
   /*
-   * `checkActionPassword` is the whole gate, and it is the same function the
-   * server action calls before it will move an indent — so testing it here
-   * tests the real guard rather than a copy of it.
+   * Approve used to be gated by a password every approver shared. That was the
+   * whole authorisation control back when there was no sign-in — without it any
+   * visitor could have approved a purchase.
+   *
+   * Accounts replaced it. rbac decides who may approve (see "Who may decide"
+   * above), and asking that person for a second secret everybody already knows
+   * protected nothing. What survives on Approve is a confirmation: a guard
+   * against the wrong button, not against the wrong person.
    */
-  check('approve requires the password',
-    findTransition('approve', 'PENDING_APPROVAL')!.requiresPassword);
-  check('submit does not require the password',
-    !findTransition('submit', 'DRAFT')!.requiresPassword);
-  /*
-   * Reject stopped asking for the password, and stopped asking for a written
-   * reason with it. Approving commits money; rejecting does not, and the
-   * indent can be raised again. The canReject permission is what stands
-   * behind it now — see the "Who may decide" checks.
-   */
-  check('reject does not require the password',
-    !findTransition('reject', 'PENDING_APPROVAL')!.requiresPassword);
-  check('no action asks for a written note any more',
+  check('approve asks for confirmation',
+    findTransition('approve', 'PENDING_APPROVAL')!.confirm);
+  check('reject does not — one click',
+    !findTransition('reject', 'PENDING_APPROVAL')!.confirm);
+  check('nor does submitting a draft',
+    !findTransition('submit', 'DRAFT')!.confirm);
+
+  check('no transition mentions a password any more',
+    TRANSITIONS.every((t) => !('requiresPassword' in t)));
+  check('and none asks for a written note',
     TRANSITIONS.every((t) => !('requiresNote' in t)));
 
   /*
-   * A password invented here, not the real one.
-   *
-   * The gate reads ACTION_PASSWORD at call time, so the test can set its own
-   * and never needs the deployed value written down in a file that gets
-   * published. It also makes this suite hermetic: it no longer depends on
-   * whatever happens to be in the developer's .env.
+   * The transition payload no longer carries a password at all, so approving
+   * must succeed without one and must not keep a stray field around.
    */
-  const TEST_PASSWORD = 'verify-only-not-a-real-password';
-  process.env.ACTION_PASSWORD = TEST_PASSWORD;
-
-  check('the correct password is accepted', checkActionPassword(TEST_PASSWORD));
-  check('a wrong password is refused', !checkActionPassword('wrong'));
-  check('an empty password is refused', !checkActionPassword(''));
-  check('case matters', !checkActionPassword(TEST_PASSWORD.toUpperCase()));
-  check('a prefix of the password is refused',
-    !checkActionPassword(TEST_PASSWORD.slice(0, -1)));
-  check('trailing whitespace is refused', !checkActionPassword(`${TEST_PASSWORD} `));
-
-  delete process.env.ACTION_PASSWORD;
-  let refusedWithoutConfig = false;
-  try {
-    checkActionPassword(TEST_PASSWORD);
-  } catch {
-    refusedWithoutConfig = true;
-  }
-  check('an unset password refuses loudly rather than falling back',
-    refusedWithoutConfig);
-  process.env.ACTION_PASSWORD = TEST_PASSWORD;
+  const noPassword = transitionSchema.safeParse({
+    indentId: '11111111-1111-4111-8111-111111111111',
+    action: 'approve',
+    returnTo: '/indents',
+  });
+  check('an approve payload needs no password field', noPassword.success);
+  check('and the parsed result carries none',
+    noPassword.success && !('password' in noPassword.data));
 
   /*
-   * The password module holds a literal fallback, so a client import would ship
-   * it to every browser. Enforced here rather than by `server-only`, which
-   * would have made the gate above untestable.
+   * password.ts is deliberately NOT marked `server-only` — the seed script has
+   * to import it, and a second copy in scripts/ is exactly the drift that once
+   * left the tamper checks running an algorithm no real indent was guarded by.
+   *
+   * That exemption costs something: nothing stops a client component importing
+   * it and pulling node:crypto, or a session lookup, into the browser bundle.
+   * This scan is what replaces the compiler's guard.
    */
   const clientFiles: string[] = [];
   (function walk(dir: string) {
@@ -467,11 +455,11 @@ async function main() {
   })(join(process.cwd(), 'src'));
 
   const leaks = clientFiles.filter((f) =>
-    /from\s+['"].*action-password['"]/.test(readFileSync(f, 'utf8')),
+    /from\s+['"][^'"]*lib\/(password|auth|guard)['"]/.test(readFileSync(f, 'utf8')),
   );
 
   check(
-    `no client component imports the password (${clientFiles.length} client files scanned)`,
+    `no client component imports password, auth or guard (${clientFiles.length} scanned)`,
     leaks.length === 0,
     leaks.join(', '),
   );
@@ -736,38 +724,51 @@ async function main() {
   // -------------------------------------------------------------------------
   /*
    * These read the component source rather than drive a browser, so they prove
-   * structure, not behaviour — see the note in the README about what is and is
-   * not covered here. They are worth having anyway: each one guards a mistake
-   * that is easy to reintroduce and silent when made.
+   * structure, not behaviour. They are worth having anyway: each guards a
+   * mistake that is easy to reintroduce and silent when made.
+   *
+   * They used to point at decide-buttons.tsx, where Approve asked for a shared
+   * password. That password is gone — accounts replaced it — so the only
+   * password fields left are the real ones: sign-in, changing your own, and an
+   * admin resetting somebody else's. All three render `PasswordField` from
+   * login-form.tsx, which is why one file is the right thing to check.
    */
-  const decideSrc = readFileSync(
-    join(process.cwd(), 'src/components/decide-buttons.tsx'),
+  const pwSrc = readFileSync(
+    join(process.cwd(), 'src/components/login-form.tsx'),
     'utf8',
   );
 
   check('the password field offers a reveal toggle',
-    /aria-label=\{shown \? 'Hide password' : 'Show password'\}/.test(decideSrc));
+    /aria-label=\{revealed \? 'Hide password' : 'Show password'\}/.test(pwSrc));
 
   /*
    * A bare <button> inside a <form> defaults to type="submit". Without this,
-   * pressing the eye would submit the half-typed password instead of showing
-   * it — and the server would answer "wrong password".
+   * pressing the eye would submit a half-typed password instead of showing it,
+   * and the server would answer "wrong email or password".
    */
   check('the toggle never submits the form',
-    /onClick=\{\(\) => setShown/.test(decideSrc) &&
-    /type="button"\s*\n\s*onClick=\{\(\) => setShown/.test(decideSrc));
+    /type="button"\s*\n\s*onClick=\{\(\) => setRevealed/.test(pwSrc));
 
-  check('it starts hidden', /const \[shown, setShown\] = useState\(false\)/.test(decideSrc));
+  check('it starts hidden',
+    /const \[revealed, setRevealed\] = useState\(false\)/.test(pwSrc));
 
   check('the input type follows the toggle',
-    /type=\{shown \? 'text' : 'password'\}/.test(decideSrc));
+    /type=\{revealed \? 'text' : 'password'\}/.test(pwSrc));
 
   // Screen readers need the state, which an icon swap alone does not convey.
-  check('the toggle reports its state', /aria-pressed=\{shown\}/.test(decideSrc));
+  check('the toggle reports its state', /aria-pressed=\{revealed\}/.test(pwSrc));
 
-  // A remount would wipe what was typed — including after a wrong password.
+  /*
+   * autoComplete is not cosmetic. Without it a browser files the new-password
+   * box under the admin's own saved credentials and offers the wrong one back.
+   */
+  check('sign-in asks for the saved password, not a new one',
+    /autoComplete="current-password"/.test(pwSrc));
+
+  // A remount would wipe what was typed — including after a wrong password,
+  // where the box must keep the attempt so it can be corrected.
   check('revealing does not remount the input',
-    !/key=\{shown/.test(decideSrc));
+    !/key=\{revealed/.test(pwSrc));
 
   // -------------------------------------------------------------------------
   console.log('\nTyped unit of measure');

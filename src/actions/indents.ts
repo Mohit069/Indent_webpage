@@ -28,18 +28,21 @@ import {
   type TransitionRule,
 } from '@/lib/workflow';
 import { can } from '@/lib/rbac';
-import { checkActionPassword } from '@/lib/action-password';
 import { logActivity } from '@/lib/activity';
 import { notifyDecision, notifySubmitted } from '@/lib/notify';
 
 /*
  * Actions.
  *
- * No authentication and no permission checks — anyone who can reach the page
- * can do any of this. What is still enforced is the *shape* of the work: the
- * validation schema, the workflow's legal transitions, and the database's own
- * constraints. Those are about keeping the data coherent, not about keeping
- * people out.
+ * Every write here is behind a permission check against the signed-in person —
+ * see rbac.ts for the policy and guard.ts for the gate. That check is the whole
+ * of the authorisation; there is no shared password any more, because a secret
+ * everyone knows adds nothing once the server knows who is asking.
+ *
+ * Separately enforced, and worth keeping distinct in your head: the *shape* of
+ * the work — the validation schema, the workflow's legal transitions, and the
+ * database's own constraints. Those keep the data coherent rather than keeping
+ * people out, and they apply to everybody regardless of role.
  */
 
 import type { ActionResult } from '@/lib/action-state';
@@ -195,8 +198,8 @@ async function resolveDepartmentId(name: string): Promise<string | null> {
  * is issued in exactly one place — two copies of the counter logic is how a
  * sequence develops duplicates.
  *
- * Callers are responsible for authorisation. This function performs no password
- * check, because one of its two callers does not need one.
+ * Callers are responsible for authorisation. This function performs no
+ * permission check of its own — both callers do it before reaching here.
  */
 async function commitTransition({
   indent,
@@ -497,24 +500,19 @@ export async function transitionIndent(
   formData: FormData,
 ): Promise<IndentActionState> {
   /*
-   * `formValues`, not `formData.get`.
-   *
-   * This is very likely why Reject never worked. Approve opens a dialog with a
-   * password box; Reject is a bare form with no password field at all, so
-   * `password` arrived as null, Zod's .optional() refused it, and the action
-   * returned a field error for a control that does not exist on that form —
-   * which the button had nowhere to display. One click, nothing happens, no
-   * message. Exactly what was reported and what I could never reproduce.
+   * `formValues`, not `formData.get`. See its note in validation.ts — reading
+   * an absent optional field directly yields null, which Zod refuses, and that
+   * is what silently broke both Reject and sign-in.
    */
   const parsed = transitionSchema.safeParse(
-    formValues(formData, ['indentId', 'action', 'password', 'returnTo']),
+    formValues(formData, ['indentId', 'action', 'returnTo']),
   );
 
   if (!parsed.success) {
     return { fieldErrors: collectFieldErrors(parsed.error.issues) };
   }
 
-  const { indentId, action, password, returnTo } = parsed.data;
+  const { indentId, action, returnTo } = parsed.data;
 
   const [indent] = await db
     .select()
@@ -530,19 +528,6 @@ export async function transitionIndent(
       error: `This indent is ${indent.status.toLowerCase().replace('_', ' ')} — that action is not available.`,
     };
   }
-  /*
-   * The password gate, checked here and nowhere else that matters.
-   *
-   * The dialog asks for it in the browser, but a browser check is decoration —
-   * anyone can post to a server action directly. This is the real gate, and it
-   * runs before anything is written.
-   */
-  if (rule.requiresPassword && !checkActionPassword(password ?? '')) {
-    return {
-      fieldErrors: { password: 'Wrong password. Nothing has been changed.' },
-    };
-  }
-
   /*
    * The permission check, on the server, before anything is written.
    *
@@ -617,9 +602,9 @@ export async function transitionIndent(
   /*
    * Say what happened, on the page they were already on.
    *
-   * The status chip changing is easy to miss, and a dialog that just disappears
-   * leaves you wondering whether the password was even accepted. The result is
-   * carried in the URL so it survives the re-render that follows.
+   * The status chip changing is easy to miss, and a dialog that just
+   * disappears leaves you unsure anything happened. The result is carried in
+   * the URL so it survives the re-render that follows.
    */
   if (returnTo) {
     const number: string = indent.indentNo ?? issuedNumber ?? '';
