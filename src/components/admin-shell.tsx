@@ -111,15 +111,15 @@ export function AdminShell({
       <aside className="hidden border-r border-line bg-surface lg:flex lg:flex-col">
         <div
           className={cn(
-            'flex h-16 items-center gap-2.5 border-b border-line',
-            collapsed ? 'justify-center px-3' : 'px-5',
+            'flex items-center gap-2.5 border-b border-line',
+            collapsed ? 'justify-center px-3 py-4' : 'px-5 pb-4 pt-5',
           )}
         >
           {collapsed ? (
             <BrandMark />
           ) : (
             <div className="flex min-w-0 flex-col gap-1">
-              <BrandWordmark width={124} />
+              <BrandWordmark width={104} />
               <p className="truncate pl-0.5 text-[11px] leading-tight text-muted">
                 Administration
               </p>
