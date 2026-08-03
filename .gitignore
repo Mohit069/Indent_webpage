@@ -13,3 +13,10 @@ build/
 next-env.d.ts
 .DS_Store
 npm-debug.log*
+
+
+# Vercel CLI writes .env.local (an OIDC token) and links the project in
+# .vercel/. Both are already covered above. A bare `.env*` is deliberately
+# NOT used: it would also swallow .env.example, which is the one env file
+# that belongs in the repository.
+!.env.example

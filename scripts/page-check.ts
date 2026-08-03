@@ -17,8 +17,20 @@ import { people, sessions } from '../src/db/schema';
  * Needs the app running. The mustChangePassword flag is switched off for the
  * duration and restored in `finally`, because it would otherwise redirect away
  * from the pages under test.
+ *
+ * Usage:  npm run check:pages [baseUrl]
+ *
+ * The URL is an argument rather than a constant so this can be pointed at a
+ * deployment, not only at localhost. A page that renders on your machine and
+ * 500s in production — because of an environment variable, a pooled connection,
+ * or a serverless cold start — is exactly the failure this is meant to catch,
+ * and it cannot catch it if it can only ever reach your machine. Run it against
+ * DATABASE_URL pointed at the same database the deployment is using.
  */
+const BASE = process.argv[2] ?? 'http://localhost:3000';
+
 async function main() {
+  console.log(`\n  against ${BASE}\n`);
   const [p] = await db.select().from(people).where(eq(people.role, 'SUPER_ADMIN')).limit(1);
   const original = p.mustChangePassword;
 
@@ -32,7 +44,7 @@ async function main() {
   try {
     for (const path of ['/admin', '/admin/pending', '/admin/indents', '/admin/users',
                         '/admin/departments', '/admin/reports', '/admin/activity', '/indents']) {
-      const res = await fetch(`http://localhost:3000${path}`, {
+      const res = await fetch(`${BASE}${path}`, {
         redirect: 'manual', headers: { cookie: `indent_session=${token}` },
       });
       const body = res.status === 200 ? await res.text() : '';
