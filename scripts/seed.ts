@@ -131,7 +131,7 @@ async function main() {
     console.log('  starter items      3');
   }
 
-  console.log('\nDone. Open the app — there is nothing to sign into.\n');
+  console.log('\nDone. Now run `npm run db:seed-admin` to create the first account.\n');
   process.exit(0);
 }
 
