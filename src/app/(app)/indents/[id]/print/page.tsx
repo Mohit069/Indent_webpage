@@ -55,6 +55,20 @@ export default async function PrintIndentPage({
 
       <div className="print-sheet border border-line bg-white p-6 text-black shadow-[var(--shadow-raised)] print:shadow-none">
         <div className="border-b-2 border-black pb-3 text-center">
+          {/*
+            The wordmark is set in type here rather than placed as the logo, and
+            that is a deliberate exception to the branding everywhere else.
+
+            The artwork is a gold gradient on transparency. This sheet is white,
+            so on screen the palest third of it — most of "QUARTZ MASTERPIECES"
+            — barely registers; and on the laser printer a plant office actually
+            owns, gold renders as pale grey and it registers less. The one place
+            the logo would look right is a colour print, which is not how a
+            purchase indent gets filed.
+
+            Black type at this weight photocopies, faxes and files legibly,
+            which is the whole job of a document header.
+          */}
           <h1 className="text-lg font-bold uppercase tracking-[0.28em]">
             Artizia Quartz
           </h1>

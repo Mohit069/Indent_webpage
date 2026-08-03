@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { can, type Permission, type Principal } from '@/lib/rbac';
 import { UserBadge, type BadgeUser } from '@/components/user-badge';
+import { BrandMark, BrandWordmark } from '@/components/brand';
 import { cn } from '@/components/ui';
 
 /*
@@ -58,21 +59,6 @@ const NAV: NavItem[] = [
     permission: 'masters:manage',
   },
 ];
-
-/** The company monogram. A tile, not a wordmark — it survives being 32px wide. */
-function Logo({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-[13px] font-bold tracking-tight text-primary-ink',
-        className,
-      )}
-    >
-      MQ
-    </span>
-  );
-}
 
 export function AppShell({
   user,
@@ -123,14 +109,13 @@ export function AppShell({
             collapsed ? 'justify-center px-3' : 'px-5',
           )}
         >
-          <Logo />
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold leading-tight text-ink">
+          {collapsed ? (
+            <BrandMark />
+          ) : (
+            <div className="flex min-w-0 flex-col gap-1">
+              <BrandWordmark width={124} />
+              <p className="truncate pl-0.5 text-[11px] leading-tight text-muted">
                 Purchase Indent
-              </p>
-              <p className="truncate text-xs leading-tight text-muted">
-                Artizia Quartz
               </p>
             </div>
           )}
@@ -213,8 +198,8 @@ export function AppShell({
       <div className="flex min-w-0 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-line bg-surface/95 px-4 backdrop-blur lg:hidden">
           <div className="flex min-w-0 items-center gap-2.5">
-            <Logo className="h-8 w-8 text-xs" />
-            <p className="truncate text-sm font-semibold text-ink">Purchase Indent</p>
+            <BrandWordmark width={96} className="px-2 py-1.5" />
+            <p className="truncate text-sm font-medium text-muted">Purchase Indent</p>
           </div>
           <UserBadge user={user} compact />
         </header>

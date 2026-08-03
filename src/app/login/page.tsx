@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
+import { BrandWordmark } from '@/components/brand';
 import { LoginForm } from '@/components/login-form';
 
 /*
@@ -32,15 +33,9 @@ export default async function LoginPage({
     <main className="flex min-h-dvh items-center justify-center bg-sunken px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <span
-            aria-hidden
-            className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-base font-bold tracking-tight text-primary-ink"
-          >
-            MQ
-          </span>
+          <BrandWordmark width={190} className="px-5 py-3.5" />
           <div>
             <h1 className="text-lg font-semibold text-ink">Purchase Indent</h1>
-            <p className="mt-0.5 text-sm text-muted">Artizia Quartz</p>
           </div>
         </div>
 
